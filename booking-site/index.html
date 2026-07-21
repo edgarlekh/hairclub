@@ -4,55 +4,105 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HAIR CLUB — Онлайн-запись</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Poppins:wght@300;400;500;600;700&family=Alex+Brush&display=swap" rel="stylesheet">
 <style>
-  :root { --gradient: linear-gradient(135deg, #d9a066, #f0c896); --text:#2b2620; --muted:#8a8072; --border:#ecе4d8; }
+  :root {
+    --gold-1: #9c6b3e;
+    --gold-2: #d9ad78;
+    --gradient: linear-gradient(135deg, var(--gold-1), var(--gold-2));
+    --gold-mid: #b8824f;
+    --sage: #7c9473;
+    --sage-light: #eaf0e6;
+    --bg: #fdfbf7;
+    --text: #2b2420;
+    --muted: #8a8072;
+    --border: #ece4d8;
+    --font-heading: "Cormorant Garamond", Georgia, serif;
+    --font-body: "Poppins", -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-script: "Alex Brush", cursive;
+  }
   * { box-sizing: border-box; }
-  body { margin:0; font-family:-apple-system,"Segoe UI",Roboto,sans-serif; background:#faf8f5; color:var(--text); }
-  header { background: var(--gradient); padding: 28px 20px; color:white; text-align:center; }
-  header h1 { margin:0; font-size:20px; }
+  body { margin:0; font-family: var(--font-body); background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+  header { background: var(--gradient); padding: 36px 20px 30px; color: white; text-align: center; }
+  .brand-mark { width: 46px; height: 46px; margin-bottom: 8px; }
+  header h1 { margin: 0; font-weight: 300; letter-spacing: 3px; font-size: 22px; text-transform: uppercase; }
+  header .tagline { margin: 6px 0 0; font-family: var(--font-heading); font-style: italic; font-weight: 500; font-size: 14px; opacity: 0.92; }
+
+  .progress { display: flex; justify-content: center; gap: 8px; padding: 16px 20px 0; }
+  .progress .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border); transition: background 0.2s, transform 0.2s; }
+  .progress .dot.done { background: var(--gold-2); }
+  .progress .dot.current { background: var(--gold-1); transform: scale(1.3); }
+
   main { max-width: 480px; margin: 0 auto; padding: 20px; }
   .step { display:none; }
   .step.active { display:block; }
-  .card { background:white; border:1px solid var(--border); border-radius:14px; padding:14px; margin-bottom:10px; cursor:pointer; }
-  .card:hover { border-color:#d9a066; }
-  .card h3 { margin:0 0 4px; font-size:15px; }
+  .step-title { font-family: var(--font-heading); font-weight: 600; font-size: 20px; margin: 4px 0 14px; color: var(--gold-1); }
+  .card { background:white; border:1px solid var(--border); border-radius:14px; padding:15px; margin-bottom:10px; cursor:pointer; box-shadow: 0 2px 10px rgba(156,107,62,0.06); transition: box-shadow 0.15s, border-color 0.15s; }
+  .card:hover { border-color: var(--gold-2); box-shadow: 0 4px 16px rgba(156,107,62,0.12); }
+  .card h3 { margin:0 0 4px; font-family: var(--font-heading); font-weight: 600; font-size: 17px; }
   .card p { margin:0; font-size:13px; color:var(--muted); }
-  .price { color:#b8763a; font-weight:600; }
+  .price { color: var(--gold-mid); font-weight:600; }
   .slots { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
-  .slot { padding:10px 14px; border:1px solid var(--border); border-radius:10px; cursor:pointer; font-size:14px; }
+  .slot { padding:10px 14px; border:1px solid var(--border); border-radius:10px; cursor:pointer; font-size:14px; background: white; transition: background 0.15s, color 0.15s, border-color 0.15s; }
   .slot:hover, .slot.selected { background: var(--gradient); color:white; border-color:transparent; }
   input, label { display:block; width:100%; }
   label { font-size:12px; color:var(--muted); margin:12px 0 4px; }
-  input { padding:11px; border:1px solid var(--border); border-radius:8px; font-size:14px; }
-  .btn { width:100%; padding:14px; background:var(--gradient); color:white; border:none; border-radius:10px; font-size:15px; font-weight:600; margin-top:16px; cursor:pointer; }
-  .back { background:none; border:none; color:var(--muted); font-size:14px; margin-bottom:14px; cursor:pointer; }
-  .success { text-align:center; padding: 40px 0; }
+  input { padding:11px; border:1px solid var(--border); border-radius:8px; font-size:14px; font-family: inherit; background: white; }
+  input:focus { outline: none; border-color: var(--gold-2); }
+  .btn { width:100%; padding:14px; background:var(--gradient); color:white; border:none; border-radius:10px; font-size:15px; font-weight:600; letter-spacing: 0.3px; margin-top:16px; cursor:pointer; }
+  .back { background:none; border:none; color:var(--muted); font-size:13px; margin-bottom:14px; cursor:pointer; padding: 0; }
+  .back:hover { color: var(--gold-1); }
+  .success { text-align:center; padding: 50px 0; }
+  .success .brand-mark { width: 44px; height: 44px; margin: 0 auto 14px; }
+  .success h2 { font-family: var(--font-heading); font-weight: 600; font-size: 24px; color: var(--gold-1); margin: 0 0 8px; }
+  .success p { color: var(--muted); font-size: 14px; }
   .empty { text-align:center; color:var(--muted); padding:30px 0; }
 </style>
 </head>
 <body>
 
-<header><h1>HAIR CLUB</h1><p style="margin:6px 0 0; font-size:13px; opacity:0.9;">Онлайн-запись</p></header>
+<header>
+  <svg class="brand-mark" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <circle cx="24" cy="24" r="17" stroke="white" stroke-width="2"/>
+    <path d="M15 15v18M15 24h7M22 15v18" stroke="white" stroke-width="2" stroke-linecap="round"/>
+    <path d="M32 12l1.4 3.6L37 17l-3.6 1.4L32 22l-1.4-3.6L27 17l3.6-1.4L32 12z" fill="white"/>
+  </svg>
+  <h1>Hair Club</h1>
+  <p class="tagline">Онлайн-запись</p>
+</header>
+
+<div class="progress" id="progress">
+  <div class="dot" data-step="service"></div>
+  <div class="dot" data-step="employee"></div>
+  <div class="dot" data-step="date"></div>
+  <div class="dot" data-step="contact"></div>
+</div>
 
 <main>
   <div class="step active" id="step-service">
+    <div class="step-title">Выберите услугу</div>
     <div id="services-list" class="empty">Загрузка услуг...</div>
   </div>
 
   <div class="step" id="step-employee">
     <button class="back" onclick="goToStep('service')">← Назад к услугам</button>
+    <div class="step-title">Выберите мастера</div>
     <div id="employees-list" class="empty"></div>
   </div>
 
   <div class="step" id="step-date">
     <button class="back" onclick="goToStep('employee')">← Назад к мастерам</button>
-    <label>Выбери дату</label>
+    <div class="step-title">Выберите дату и время</div>
+    <label>Дата</label>
     <input type="date" id="date-input" onchange="loadSlots()">
     <div id="slots-list" class="slots"></div>
   </div>
 
   <div class="step" id="step-contact">
     <button class="back" onclick="goToStep('date')">← Назад к выбору времени</button>
+    <div class="step-title">Ваши данные</div>
     <label>Ваше имя</label>
     <input id="client-name" placeholder="Как к вам обращаться">
     <label>Телефон</label>
@@ -62,7 +112,12 @@
 
   <div class="step" id="step-success">
     <div class="success">
-      <h2>Готово! 🎉</h2>
+      <svg class="brand-mark" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="24" cy="24" r="17" stroke="#9c6b3e" stroke-width="2"/>
+        <path d="M15 15v18M15 24h7M22 15v18" stroke="#9c6b3e" stroke-width="2" stroke-linecap="round"/>
+        <path d="M32 12l1.4 3.6L37 17l-3.6 1.4L32 22l-1.4-3.6L27 17l3.6-1.4L32 12z" fill="#9c6b3e"/>
+      </svg>
+      <h2>Готово!</h2>
       <p>Ваша запись подтверждена. Ждём вас!</p>
     </div>
   </div>
@@ -73,9 +128,22 @@ const API_BASE = "https://salon-agent.YOUR-SUBDOMAIN.workers.dev/public";
 
 let state = { service: null, employee: null, date: null, time: null };
 
+const STEP_ORDER = ["service", "employee", "date", "contact", "success"];
+
 function goToStep(name) {
   document.querySelectorAll(".step").forEach(s => s.classList.remove("active"));
   document.getElementById(`step-${name}`).classList.add("active");
+  updateProgress(name);
+}
+
+function updateProgress(name) {
+  const idx = STEP_ORDER.indexOf(name);
+  document.querySelectorAll(".progress .dot").forEach(dot => {
+    const dotIdx = STEP_ORDER.indexOf(dot.dataset.step);
+    dot.classList.toggle("done", dotIdx < idx);
+    dot.classList.toggle("current", dotIdx === idx);
+  });
+  document.getElementById("progress").style.display = name === "success" ? "none" : "flex";
 }
 
 async function api(path) {
@@ -153,6 +221,7 @@ async function submitBooking() {
   }
 }
 
+updateProgress("service");
 loadServices();
 </script>
 </body>

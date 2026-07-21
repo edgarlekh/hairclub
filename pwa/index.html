@@ -3,91 +3,131 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HairClub — Панель управления</title>
+<title>HAIR CLUB — Панель управления</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#d9a066">
+<meta name="theme-color" content="#c79a63">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Poppins:wght@300;400;500;600;700&family=Alex+Brush&display=swap" rel="stylesheet">
 <style>
   :root {
-    --gradient: linear-gradient(135deg, #d9a066, #f0c896);
-    --bg: #faf8f5;
+    --gold-1: #9c6b3e;
+    --gold-2: #d9ad78;
+    --gradient: linear-gradient(135deg, var(--gold-1), var(--gold-2));
+    --gold-mid: #b8824f;
+    --sage: #7c9473;
+    --sage-light: #eaf0e6;
+    --terracotta: #c0392b;
+    --terracotta-light: #fbe3e0;
+    --bg: #fdfbf7;
     --card: #ffffff;
-    --text: #2b2620;
+    --text: #2b2420;
     --muted: #8a8072;
-    --border: #ecе4d8;
+    --border: #ece4d8;
+    --font-heading: "Cormorant Garamond", Georgia, serif;
+    --font-body: "Poppins", -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-script: "Alex Brush", cursive;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0; font-family: var(--font-body);
     background: var(--bg); color: var(--text);
+    -webkit-font-smoothing: antialiased;
   }
   header {
-    background: var(--gradient); padding: 20px; color: white;
+    background: var(--gradient); padding: 22px 20px; color: white;
     display: flex; align-items: center; gap: 12px;
     position: sticky; top: 0; z-index: 10;
+    box-shadow: 0 2px 16px rgba(156, 107, 62, 0.25);
   }
-  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .brand-mark { width: 38px; height: 38px; flex-shrink: 0; }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
+  header h1 {
+    font-family: var(--font-body); font-weight: 300; letter-spacing: 2px;
+    font-size: 19px; margin: 0; text-transform: uppercase;
+  }
+  header .subtitle {
+    font-family: var(--font-heading); font-style: italic; font-weight: 500;
+    font-size: 13px; opacity: 0.92; margin-top: 2px;
+  }
   nav {
     display: flex; overflow-x: auto; background: white;
-    border-bottom: 1px solid var(--border); position: sticky; top: 68px; z-index: 9;
+    border-bottom: 1px solid var(--border); position: sticky; top: 74px; z-index: 9;
   }
   nav button {
     flex: 1; min-width: 90px; padding: 14px 8px; border: none; background: none;
-    font-size: 13px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+    font-family: var(--font-body); font-size: 12.5px; letter-spacing: 0.2px;
+    color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
   }
-  nav button.active { color: #b8763a; border-bottom-color: #d9a066; font-weight: 600; }
+  nav button.active { color: var(--gold-1); border-bottom-color: var(--gold-2); font-weight: 600; }
   main { padding: 16px; max-width: 720px; margin: 0 auto; }
   .card {
     background: var(--card); border-radius: 14px; padding: 16px;
     margin-bottom: 12px; border: 1px solid var(--border);
+    box-shadow: 0 2px 10px rgba(156, 107, 62, 0.06);
+    transition: box-shadow 0.15s, transform 0.15s;
   }
-  .card h3 { margin: 0 0 6px; font-size: 15px; }
+  .card:hover { box-shadow: 0 4px 16px rgba(156, 107, 62, 0.12); }
+  .card h3 { margin: 0 0 6px; font-family: var(--font-heading); font-weight: 600; font-size: 18px; }
   .card p { margin: 0; font-size: 13px; color: var(--muted); }
-  .price { font-weight: 600; color: #b8763a; }
+  .price { font-weight: 600; color: var(--gold-mid); }
   .fab {
     position: fixed; bottom: 20px; right: 20px; width: 56px; height: 56px;
     border-radius: 50%; background: var(--gradient); color: white; border: none;
-    font-size: 26px; box-shadow: 0 4px 14px rgba(0,0,0,0.2); cursor: pointer;
+    font-size: 26px; box-shadow: 0 4px 16px rgba(156, 107, 62, 0.4); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; line-height: 1;
   }
   .modal-bg {
-    position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none;
+    position: fixed; inset: 0; background: rgba(43, 36, 32, 0.45); display: none;
     align-items: flex-end; justify-content: center; z-index: 20;
+    backdrop-filter: blur(2px);
   }
   .modal-bg.open { display: flex; }
   .modal {
-    background: white; width: 100%; max-width: 720px; border-radius: 16px 16px 0 0;
-    padding: 20px; max-height: 85vh; overflow-y: auto;
+    background: white; width: 100%; max-width: 720px; border-radius: 20px 20px 0 0;
+    padding: 22px; max-height: 85vh; overflow-y: auto;
   }
-  .modal h2 { margin-top: 0; font-size: 17px; }
+  .modal h2 { margin-top: 0; font-family: var(--font-heading); font-weight: 600; font-size: 21px; color: var(--gold-1); }
   label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
   input, textarea, select {
     width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
-    font-size: 14px; font-family: inherit;
+    font-size: 14px; font-family: inherit; background: var(--bg);
   }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--gold-2); background: white; }
   .row { display: flex; gap: 10px; }
   .row > * { flex: 1; }
   .btn-primary {
     width: 100%; padding: 13px; background: var(--gradient); color: white; border: none;
     border-radius: 10px; font-size: 15px; font-weight: 600; margin-top: 16px; cursor: pointer;
+    letter-spacing: 0.3px;
   }
   .btn-secondary {
     width: 100%; padding: 12px; background: none; color: var(--muted); border: 1px solid var(--border);
     border-radius: 10px; font-size: 14px; margin-top: 8px; cursor: pointer;
   }
-  .conv-item { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
-  .badge { font-size: 11px; padding: 3px 8px; border-radius: 20px; background: #f0e4d0; color: #b8763a; }
-  .badge.escalated { background: #fde0e0; color: #c0392b; }
+  .conv-item { display: flex; justify-content: space-between; align-items: center; cursor: pointer; gap: 10px; }
+  .badge { font-size: 11px; padding: 3px 10px; border-radius: 20px; background: var(--sage-light); color: var(--sage); white-space: nowrap; }
+  .badge.escalated { background: var(--terracotta-light); color: var(--terracotta); }
   .msg { padding: 8px 12px; border-radius: 10px; margin-bottom: 6px; font-size: 13px; max-width: 80%; }
-  .msg.client { background: #f0f0f0; align-self: flex-start; }
-  .msg.agent { background: #f0e4d0; align-self: flex-end; margin-left: auto; }
-  .msg.owner { background: #d9f0d0; align-self: flex-end; margin-left: auto; }
+  .msg.client { background: #f1efe9; align-self: flex-start; }
+  .msg.agent { background: #f4e8d6; align-self: flex-end; margin-left: auto; }
+  .msg.owner { background: var(--sage-light); align-self: flex-end; margin-left: auto; }
   .empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 14px; }
 </style>
 </head>
 <body>
 
 <header>
-  <div style="width:36px;height:36px;background:white;border-radius:8px;"></div>
-  <h1>HAIR CLUB — Панель</h1>
+  <svg class="brand-mark" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <circle cx="24" cy="24" r="17" stroke="white" stroke-width="2"/>
+    <path d="M15 15v18M15 24h7M22 15v18" stroke="white" stroke-width="2" stroke-linecap="round"/>
+    <path d="M32 12l1.4 3.6L37 17l-3.6 1.4L32 22l-1.4-3.6L27 17l3.6-1.4L32 12z" fill="white"/>
+  </svg>
+  <div class="brand-text">
+    <h1>Hair Club</h1>
+    <div class="subtitle">Панель владельца</div>
+  </div>
 </header>
 
 <nav id="tabs">
