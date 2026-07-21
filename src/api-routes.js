@@ -84,20 +84,36 @@ export async function handleApiRequest(request, env, path) {
   }
   if (photosMatch && method === "POST") {
     const b = await request.json();
-    await db
-      .prepare("INSERT INTO service_photos (service_id, photo_url, tag_description) VALUES (?, ?, ?)")
+    const result = await db
+      .prepare("INSERT INTO service_photos (service_id, photo_url, tag_description) VALUES (?, ?, ?) RETURNING id")
       .bind(photosMatch[1], b.photo_url, b.tag_description)
-      .run();
+      .first();
+    return j({ id: result.id });
+  }
+  const photoDeleteMatch = path.match(/^\/api\/services\/\d+\/photos\/(\d+)$/);
+  if (photoDeleteMatch && method === "DELETE") {
+    await db.prepare("DELETE FROM service_photos WHERE id=?").bind(photoDeleteMatch[1]).run();
     return j({ ok: true });
   }
 
   // --- Сотрудники ---
   if (path === "/api/employees" && method === "GET") {
-    const { results } = await db
+    const { results: employees } = await db
       .prepare("SELECT * FROM employees WHERE salon_id = ?")
       .bind(SALON_ID)
       .all();
-    return j(results);
+    const { results: links } = await db
+      .prepare(
+        `SELECT es.employee_id, es.service_id FROM employee_services es
+         JOIN employees e ON e.id = es.employee_id WHERE e.salon_id = ?`
+      )
+      .bind(SALON_ID)
+      .all();
+    const serviceIdsByEmployee = {};
+    for (const link of links) {
+      (serviceIdsByEmployee[link.employee_id] ??= []).push(link.service_id);
+    }
+    return j(employees.map((e) => ({ ...e, service_ids: serviceIdsByEmployee[e.id] || [] })));
   }
   if (path === "/api/employees" && method === "POST") {
     const b = await request.json();
@@ -105,7 +121,40 @@ export async function handleApiRequest(request, env, path) {
       .prepare("INSERT INTO employees (salon_id, name, working_schedule, photo_url) VALUES (?, ?, ?, ?) RETURNING id")
       .bind(SALON_ID, b.name, b.working_schedule || "", b.photo_url || "")
       .first();
+    if (Array.isArray(b.service_ids) && b.service_ids.length) {
+      for (const serviceId of b.service_ids) {
+        await db
+          .prepare("INSERT OR IGNORE INTO employee_services (employee_id, service_id) VALUES (?, ?)")
+          .bind(result.id, serviceId)
+          .run();
+      }
+    }
     return j({ id: result.id });
+  }
+  const employeeMatch = path.match(/^\/api\/employees\/(\d+)$/);
+  if (employeeMatch && method === "PUT") {
+    const id = employeeMatch[1];
+    const b = await request.json();
+    await db
+      .prepare("UPDATE employees SET name=?, working_schedule=?, photo_url=? WHERE id=?")
+      .bind(b.name, b.working_schedule || "", b.photo_url || "", id)
+      .run();
+    if (Array.isArray(b.service_ids)) {
+      await db.prepare("DELETE FROM employee_services WHERE employee_id=?").bind(id).run();
+      for (const serviceId of b.service_ids) {
+        await db
+          .prepare("INSERT OR IGNORE INTO employee_services (employee_id, service_id) VALUES (?, ?)")
+          .bind(id, serviceId)
+          .run();
+      }
+    }
+    return j({ ok: true });
+  }
+  if (employeeMatch && method === "DELETE") {
+    const id = employeeMatch[1];
+    await db.prepare("DELETE FROM employee_services WHERE employee_id=?").bind(id).run();
+    await db.prepare("DELETE FROM employees WHERE id=?").bind(id).run();
+    return j({ ok: true });
   }
 
   // --- Правила/ограничения ---

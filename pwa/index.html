@@ -114,6 +114,16 @@
   .msg.agent { background: #f4e8d6; align-self: flex-end; margin-left: auto; }
   .msg.owner { background: var(--sage-light); align-self: flex-end; margin-left: auto; }
   .empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { font-size: 11px; padding: 4px 10px; border-radius: 20px; background: var(--bg); border: 1px solid var(--border); color: var(--text); }
+  .chip-select { display: flex; align-items: center; gap: 8px; padding: 9px 4px; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .chip-select:last-child { border-bottom: none; }
+  .chip-select input { width: auto; }
+  .photo-row { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .photo-row img { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: var(--bg); flex-shrink: 0; }
+  .photo-row .photo-info { flex: 1; font-size: 12px; color: var(--muted); }
+  .photo-row .photo-del { background: none; border: none; color: var(--terracotta); font-size: 18px; cursor: pointer; padding: 4px 8px; }
+  .link-btn { background: none; border: none; color: var(--gold-mid); font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -219,8 +229,52 @@ function openServiceForm(service = {}) {
     <label>Описание (для AI-агента — что важно знать об услуге)</label>
     <textarea id="f_desc" rows="3">${service.description || ""}</textarea>
     <button class="btn-primary" onclick="saveService(${service.id || "null"})">Сохранить</button>
+    ${isEdit ? `<button class="link-btn" onclick='openServicePhotos(${JSON.stringify(service)})'>Фото примеров работ →</button>` : ""}
     ${isEdit ? `<button class="btn-secondary" onclick="deleteService(${service.id})">Удалить услугу</button>` : ""}
   `);
+}
+
+// ---------- ФОТО УСЛУГИ ----------
+async function openServicePhotos(service) {
+  const photos = await api(`/services/${service.id}/photos`);
+  openModal(`
+    <h2>Фото: ${service.name}</h2>
+    <div id="photos_list">${renderPhotosList(photos)}</div>
+    <label>Ссылка на фото (URL)</label>
+    <input id="ph_url" placeholder="https://...">
+    <label>Подпись (когда агенту показывать это фото)</label>
+    <input id="ph_desc" placeholder="например: пример после окрашивания в блонд">
+    <button class="btn-primary" onclick='addServicePhoto(${service.id})'>Добавить фото</button>
+    <button class="btn-secondary" onclick='openServiceForm(${JSON.stringify(service)})'>← Назад к услуге</button>
+  `);
+}
+
+function renderPhotosList(photos) {
+  if (!photos.length) return `<p style="font-size:13px;color:var(--muted)">Пока нет фото для этой услуги.</p>`;
+  return photos.map(p => `
+    <div class="photo-row">
+      <img src="${p.photo_url}" alt="" onerror="this.style.visibility='hidden'">
+      <div class="photo-info">${p.tag_description}</div>
+      <button class="photo-del" onclick="deleteServicePhoto(${p.service_id}, ${p.id})" title="Удалить фото">×</button>
+    </div>
+  `).join("");
+}
+
+async function addServicePhoto(serviceId) {
+  const photo_url = document.getElementById("ph_url").value.trim();
+  const tag_description = document.getElementById("ph_desc").value.trim();
+  if (!photo_url || !tag_description) { alert("Заполни ссылку и подпись"); return; }
+  await api(`/services/${serviceId}/photos`, { method: "POST", body: JSON.stringify({ photo_url, tag_description }) });
+  const photos = await api(`/services/${serviceId}/photos`);
+  document.getElementById("photos_list").innerHTML = renderPhotosList(photos);
+  document.getElementById("ph_url").value = "";
+  document.getElementById("ph_desc").value = "";
+}
+
+async function deleteServicePhoto(serviceId, photoId) {
+  await api(`/services/${serviceId}/photos/${photoId}`, { method: "DELETE" });
+  const photos = await api(`/services/${serviceId}/photos`);
+  document.getElementById("photos_list").innerHTML = renderPhotosList(photos);
 }
 
 async function saveService(id) {
@@ -249,42 +303,76 @@ async function deleteService(id) {
 }
 
 // ---------- МАСТЕРА ----------
+let allServicesCache = [];
+
 async function renderEmployees() {
   document.getElementById("fab").style.display = "block";
-  document.getElementById("fab").onclick = openEmployeeForm;
-  const employees = await api("/employees");
+  document.getElementById("fab").onclick = () => openEmployeeForm();
+  const [employees, services] = await Promise.all([api("/employees"), api("/services")]);
+  allServicesCache = services;
+  const servicesById = Object.fromEntries(services.map(s => [s.id, s]));
   const content = document.getElementById("content");
   if (!employees.length) {
     content.innerHTML = `<div class="empty">Пока нет мастеров. Нажми "+", чтобы добавить.</div>`;
     return;
   }
   content.innerHTML = employees.map(e => `
-    <div class="card">
+    <div class="card" onclick='openEmployeeForm(${JSON.stringify(e)})'>
       <h3>${e.name}</h3>
       <p>${e.working_schedule || "график не указан"}</p>
+      <div class="chips">
+        ${e.service_ids.length
+          ? e.service_ids.map(id => servicesById[id] ? `<span class="chip">${servicesById[id].name}</span>` : "").join("")
+          : `<span class="chip">услуги не назначены</span>`}
+      </div>
     </div>
   `).join("");
 }
 
-function openEmployeeForm() {
+function openEmployeeForm(employee = {}) {
+  const isEdit = !!employee.id;
+  const selectedIds = new Set(employee.service_ids || []);
   openModal(`
-    <h2>Новый мастер</h2>
+    <h2>${isEdit ? "Редактировать мастера" : "Новый мастер"}</h2>
     <label>Имя</label>
-    <input id="e_name">
+    <input id="e_name" value="${employee.name || ""}">
     <label>График работы</label>
-    <input id="e_schedule" placeholder="Пн-Сб 9:00-18:00">
-    <button class="btn-primary" onclick="saveEmployee()">Сохранить</button>
+    <input id="e_schedule" placeholder="Пн-Сб 9:00-18:00" value="${employee.working_schedule || ""}">
+    <label>Какие услуги делает</label>
+    <div>
+      ${allServicesCache.length
+        ? allServicesCache.map(s => `
+          <label class="chip-select">
+            <input type="checkbox" value="${s.id}" ${selectedIds.has(s.id) ? "checked" : ""} class="e_service_cb">
+            ${s.name}
+          </label>
+        `).join("")
+        : `<p style="font-size:12px;color:var(--muted)">Сначала добавь услуги на вкладке "Услуги".</p>`}
+    </div>
+    <button class="btn-primary" onclick="saveEmployee(${employee.id || "null"})">Сохранить</button>
+    ${isEdit ? `<button class="btn-secondary" onclick="deleteEmployee(${employee.id})">Удалить мастера</button>` : ""}
   `);
 }
 
-async function saveEmployee() {
-  await api("/employees", {
-    method: "POST",
-    body: JSON.stringify({
-      name: document.getElementById("e_name").value,
-      working_schedule: document.getElementById("e_schedule").value,
-    }),
-  });
+async function saveEmployee(id) {
+  const service_ids = Array.from(document.querySelectorAll(".e_service_cb:checked")).map(cb => parseInt(cb.value));
+  const payload = {
+    name: document.getElementById("e_name").value,
+    working_schedule: document.getElementById("e_schedule").value,
+    service_ids,
+  };
+  if (id) {
+    await api(`/employees/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+  } else {
+    await api("/employees", { method: "POST", body: JSON.stringify(payload) });
+  }
+  closeModal();
+  renderEmployees();
+}
+
+async function deleteEmployee(id) {
+  if (!confirm("Удалить этого мастера?")) return;
+  await api(`/employees/${id}`, { method: "DELETE" });
   closeModal();
   renderEmployees();
 }
