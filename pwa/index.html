@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HairClub — Панель управления</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#d9a066">
+<style>
+  :root {
+    --gradient: linear-gradient(135deg, #d9a066, #f0c896);
+    --bg: #faf8f5;
+    --card: #ffffff;
+    --text: #2b2620;
+    --muted: #8a8072;
+    --border: #ecе4d8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    background: var(--gradient); padding: 20px; color: white;
+    display: flex; align-items: center; gap: 12px;
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  nav {
+    display: flex; overflow-x: auto; background: white;
+    border-bottom: 1px solid var(--border); position: sticky; top: 68px; z-index: 9;
+  }
+  nav button {
+    flex: 1; min-width: 90px; padding: 14px 8px; border: none; background: none;
+    font-size: 13px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+  }
+  nav button.active { color: #b8763a; border-bottom-color: #d9a066; font-weight: 600; }
+  main { padding: 16px; max-width: 720px; margin: 0 auto; }
+  .card {
+    background: var(--card); border-radius: 14px; padding: 16px;
+    margin-bottom: 12px; border: 1px solid var(--border);
+  }
+  .card h3 { margin: 0 0 6px; font-size: 15px; }
+  .card p { margin: 0; font-size: 13px; color: var(--muted); }
+  .price { font-weight: 600; color: #b8763a; }
+  .fab {
+    position: fixed; bottom: 20px; right: 20px; width: 56px; height: 56px;
+    border-radius: 50%; background: var(--gradient); color: white; border: none;
+    font-size: 26px; box-shadow: 0 4px 14px rgba(0,0,0,0.2); cursor: pointer;
+  }
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none;
+    align-items: flex-end; justify-content: center; z-index: 20;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: white; width: 100%; max-width: 720px; border-radius: 16px 16px 0 0;
+    padding: 20px; max-height: 85vh; overflow-y: auto;
+  }
+  .modal h2 { margin-top: 0; font-size: 17px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  input, textarea, select {
+    width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+    font-size: 14px; font-family: inherit;
+  }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .btn-primary {
+    width: 100%; padding: 13px; background: var(--gradient); color: white; border: none;
+    border-radius: 10px; font-size: 15px; font-weight: 600; margin-top: 16px; cursor: pointer;
+  }
+  .btn-secondary {
+    width: 100%; padding: 12px; background: none; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 10px; font-size: 14px; margin-top: 8px; cursor: pointer;
+  }
+  .conv-item { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+  .badge { font-size: 11px; padding: 3px 8px; border-radius: 20px; background: #f0e4d0; color: #b8763a; }
+  .badge.escalated { background: #fde0e0; color: #c0392b; }
+  .msg { padding: 8px 12px; border-radius: 10px; margin-bottom: 6px; font-size: 13px; max-width: 80%; }
+  .msg.client { background: #f0f0f0; align-self: flex-start; }
+  .msg.agent { background: #f0e4d0; align-self: flex-end; margin-left: auto; }
+  .msg.owner { background: #d9f0d0; align-self: flex-end; margin-left: auto; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="width:36px;height:36px;background:white;border-radius:8px;"></div>
+  <h1>HAIR CLUB — Панель</h1>
+</header>
+
+<nav id="tabs">
+  <button data-tab="services" class="active">Услуги</button>
+  <button data-tab="employees">Мастера</button>
+  <button data-tab="rules">Правила</button>
+  <button data-tab="knowledge">База знаний</button>
+  <button data-tab="conversations">Диалоги</button>
+  <button data-tab="profile">Профиль</button>
+</nav>
+
+<main id="content"></main>
+
+<button class="fab" id="fab" style="display:none">+</button>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<script>
+const API_BASE = "https://salon-agent.YOUR-SUBDOMAIN.workers.dev/api"; // заменить на реальный URL после деплоя
+const ADMIN_TOKEN = "PASTE_YOUR_ADMIN_TOKEN_HERE"; // тот же токен, что задан в wrangler secret ADMIN_TOKEN
+
+let currentTab = "services";
+
+document.getElementById("tabs").addEventListener("click", (e) => {
+  if (e.target.tagName !== "BUTTON") return;
+  document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+  e.target.classList.add("active");
+  currentTab = e.target.dataset.tab;
+  render();
+});
+
+function openModal(html) {
+  document.getElementById("modalContent").innerHTML = html;
+  document.getElementById("modalBg").classList.add("open");
+}
+function closeModal() {
+  document.getElementById("modalBg").classList.remove("open");
+}
+document.getElementById("modalBg").addEventListener("click", (e) => {
+  if (e.target.id === "modalBg") closeModal();
+});
+
+async function api(path, options = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      "X-Admin-Token": ADMIN_TOKEN,
+    },
+    ...options,
+  });
+  return res.json();
+}
+
+// ---------- УСЛУГИ ----------
+async function renderServices() {
+  document.getElementById("fab").style.display = "block";
+  document.getElementById("fab").onclick = openServiceForm;
+  const services = await api("/services");
+  const content = document.getElementById("content");
+  if (!services.length) {
+    content.innerHTML = `<div class="empty">Пока нет услуг. Нажми "+", чтобы добавить первую.</div>`;
+    return;
+  }
+  content.innerHTML = services.map(s => `
+    <div class="card" onclick='openServiceForm(${JSON.stringify(s)})'>
+      <h3>${s.name}</h3>
+      <p><span class="price">${s.price_min}–${s.price_max} ${s.currency}</span> · ${s.duration_minutes} мин</p>
+      <p>${s.description || ""}</p>
+    </div>
+  `).join("");
+}
+
+function openServiceForm(service = {}) {
+  const isEdit = !!service.id;
+  openModal(`
+    <h2>${isEdit ? "Редактировать услугу" : "Новая услуга"}</h2>
+    <label>Название</label>
+    <input id="f_name" value="${service.name || ""}">
+    <label>Категория</label>
+    <input id="f_category" value="${service.category || ""}">
+    <div class="row">
+      <div><label>Цена от</label><input id="f_price_min" type="number" value="${service.price_min || ""}"></div>
+      <div><label>Цена до</label><input id="f_price_max" type="number" value="${service.price_max || ""}"></div>
+    </div>
+    <label>Длительность (минут)</label>
+    <input id="f_duration" type="number" value="${service.duration_minutes || ""}">
+    <label>Описание (для AI-агента — что важно знать об услуге)</label>
+    <textarea id="f_desc" rows="3">${service.description || ""}</textarea>
+    <button class="btn-primary" onclick="saveService(${service.id || "null"})">Сохранить</button>
+    ${isEdit ? `<button class="btn-secondary" onclick="deleteService(${service.id})">Удалить услугу</button>` : ""}
+  `);
+}
+
+async function saveService(id) {
+  const payload = {
+    name: document.getElementById("f_name").value,
+    category: document.getElementById("f_category").value,
+    price_min: parseFloat(document.getElementById("f_price_min").value),
+    price_max: parseFloat(document.getElementById("f_price_max").value),
+    duration_minutes: parseInt(document.getElementById("f_duration").value),
+    description: document.getElementById("f_desc").value,
+  };
+  if (id) {
+    await api(`/services/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+  } else {
+    await api("/services", { method: "POST", body: JSON.stringify(payload) });
+  }
+  closeModal();
+  renderServices();
+}
+
+async function deleteService(id) {
+  if (!confirm("Удалить эту услугу?")) return;
+  await api(`/services/${id}`, { method: "DELETE" });
+  closeModal();
+  renderServices();
+}
+
+// ---------- МАСТЕРА ----------
+async function renderEmployees() {
+  document.getElementById("fab").style.display = "block";
+  document.getElementById("fab").onclick = openEmployeeForm;
+  const employees = await api("/employees");
+  const content = document.getElementById("content");
+  if (!employees.length) {
+    content.innerHTML = `<div class="empty">Пока нет мастеров. Нажми "+", чтобы добавить.</div>`;
+    return;
+  }
+  content.innerHTML = employees.map(e => `
+    <div class="card">
+      <h3>${e.name}</h3>
+      <p>${e.working_schedule || "график не указан"}</p>
+    </div>
+  `).join("");
+}
+
+function openEmployeeForm() {
+  openModal(`
+    <h2>Новый мастер</h2>
+    <label>Имя</label>
+    <input id="e_name">
+    <label>График работы</label>
+    <input id="e_schedule" placeholder="Пн-Сб 9:00-18:00">
+    <button class="btn-primary" onclick="saveEmployee()">Сохранить</button>
+  `);
+}
+
+async function saveEmployee() {
+  await api("/employees", {
+    method: "POST",
+    body: JSON.stringify({
+      name: document.getElementById("e_name").value,
+      working_schedule: document.getElementById("e_schedule").value,
+    }),
+  });
+  closeModal();
+  renderEmployees();
+}
+
+// ---------- ПРАВИЛА / ОГРАНИЧЕНИЯ ----------
+async function renderRules() {
+  document.getElementById("fab").style.display = "block";
+  document.getElementById("fab").onclick = openRuleForm;
+  const rules = await api("/rules");
+  const content = document.getElementById("content");
+  if (!rules.length) {
+    content.innerHTML = `<div class="empty">Нет активных ограничений. Например: "не записывать на 25 июля" или "сейчас скидка на выпрямление".</div>`;
+    return;
+  }
+  content.innerHTML = rules.map(r => `
+    <div class="card">
+      <h3>${r.rule_type === "blackout_date" ? "🚫 Блокировка даты" : r.rule_type === "promo" ? "🎁 Акция" : "📌 Инструкция"}</h3>
+      <p>${r.description}</p>
+      <p style="margin-top:6px">${r.valid_from || ""} ${r.valid_until ? "→ " + r.valid_until : ""}</p>
+      <button class="btn-secondary" onclick="deleteRule(${r.id})">Удалить</button>
+    </div>
+  `).join("");
+}
+
+function openRuleForm() {
+  openModal(`
+    <h2>Новое ограничение / инструкция</h2>
+    <label>Тип</label>
+    <select id="r_type">
+      <option value="instruction">Инструкция для агента</option>
+      <option value="blackout_date">Заблокировать дату</option>
+      <option value="promo">Акция</option>
+    </select>
+    <label>Описание (что именно учитывать агенту)</label>
+    <textarea id="r_desc" rows="3" placeholder="Например: 25 июля не записывать никого, мастер в отпуске"></textarea>
+    <div class="row">
+      <div><label>Действует с</label><input id="r_from" type="date"></div>
+      <div><label>Действует до</label><input id="r_until" type="date"></div>
+    </div>
+    <button class="btn-primary" onclick="saveRule()">Сохранить</button>
+  `);
+}
+
+async function saveRule() {
+  await api("/rules", {
+    method: "POST",
+    body: JSON.stringify({
+      rule_type: document.getElementById("r_type").value,
+      description: document.getElementById("r_desc").value,
+      valid_from: document.getElementById("r_from").value,
+      valid_until: document.getElementById("r_until").value,
+    }),
+  });
+  closeModal();
+  renderRules();
+}
+
+async function deleteRule(id) {
+  await api(`/rules/${id}`, { method: "DELETE" });
+  renderRules();
+}
+
+// ---------- БАЗА ЗНАНИЙ ----------
+async function renderKnowledge() {
+  document.getElementById("fab").style.display = "block";
+  document.getElementById("fab").onclick = openKnowledgeForm;
+  const items = await api("/knowledge");
+  const content = document.getElementById("content");
+  content.innerHTML = items.map(k => `
+    <div class="card">
+      <h3>${k.topic}</h3>
+      <p>${k.content}</p>
+    </div>
+  `).join("") || `<div class="empty">База знаний пуста.</div>`;
+}
+
+function openKnowledgeForm() {
+  openModal(`
+    <h2>Добавить в базу знаний</h2>
+    <label>Тема (например "Уход после процедуры")</label>
+    <input id="k_topic">
+    <label>Содержание</label>
+    <textarea id="k_content" rows="5"></textarea>
+    <button class="btn-primary" onclick="saveKnowledge()">Сохранить</button>
+  `);
+}
+
+async function saveKnowledge() {
+  await api("/knowledge", {
+    method: "POST",
+    body: JSON.stringify({
+      topic: document.getElementById("k_topic").value,
+      content: document.getElementById("k_content").value,
+    }),
+  });
+  closeModal();
+  renderKnowledge();
+}
+
+// ---------- ДИАЛОГИ ----------
+async function renderConversations() {
+  document.getElementById("fab").style.display = "none";
+  const convs = await api("/conversations");
+  const content = document.getElementById("content");
+  if (!convs.length) {
+    content.innerHTML = `<div class="empty">Пока нет диалогов.</div>`;
+    return;
+  }
+  content.innerHTML = convs.map(c => `
+    <div class="card conv-item" onclick="openConversation(${c.id})">
+      <div>
+        <h3>Клиент ${c.client_channel_id}</h3>
+        <p>${(c.last_message || "").slice(0, 60)}</p>
+      </div>
+      <span class="badge ${c.status === 'escalated' ? 'escalated' : ''}">${
+        c.status === 'escalated' ? 'Нужно внимание' : c.status === 'owner_active' ? 'Ты ведёшь' : 'Агент отвечает'
+      }</span>
+    </div>
+  `).join("");
+}
+
+async function openConversation(id) {
+  const messages = await api(`/conversations/${id}/messages`);
+  openModal(`
+    <h2>Диалог</h2>
+    <div style="display:flex; flex-direction:column; max-height:50vh; overflow-y:auto; margin-bottom:12px;">
+      ${messages.map(m => `<div class="msg ${m.sender}">${m.content}</div>`).join("")}
+    </div>
+    <textarea id="owner_msg" rows="2" placeholder="Написать клиенту от своего имени..."></textarea>
+    <button class="btn-primary" onclick="sendOwnerMessage(${id})">Отправить и перехватить диалог</button>
+    <button class="btn-secondary" onclick="resumeAgent(${id})">Вернуть диалог агенту</button>
+  `);
+}
+
+async function sendOwnerMessage(convId) {
+  const content = document.getElementById("owner_msg").value;
+  if (!content.trim()) return;
+  await api(`/conversations/${convId}/messages`, { method: "POST", body: JSON.stringify({ content }) });
+  closeModal();
+  renderConversations();
+}
+
+async function resumeAgent(convId) {
+  await api(`/conversations/${convId}/resume-agent`, { method: "POST" });
+  closeModal();
+  renderConversations();
+}
+
+// ---------- ПРОФИЛЬ / ТОН ОБЩЕНИЯ ----------
+async function renderProfile() {
+  document.getElementById("fab").style.display = "none";
+  const salon = await api("/salon");
+  document.getElementById("content").innerHTML = `
+    <div class="card">
+      <label>Название салона</label>
+      <input id="p_name" value="${salon.name || ""}">
+      <label>Адрес</label>
+      <input id="p_address" value="${salon.address || ""}">
+      <label>Часы работы</label>
+      <input id="p_hours" value="${salon.working_hours || ""}">
+      <label>Тон общения AI-агента</label>
+      <textarea id="p_tone" rows="3">${salon.tone_of_voice || ""}</textarea>
+      <p style="margin-top:6px; font-size:12px;">Например: "дружелюбный и тёплый" или "строгий и деловой" — агент будет придерживаться этого стиля во всех диалогах.</p>
+
+      <label>Использование смайликов</label>
+      <select id="p_emoji">
+        <option value="none" ${salon.emoji_usage === "none" ? "selected" : ""}>Не использовать вообще</option>
+        <option value="minimal" ${salon.emoji_usage === "minimal" || !salon.emoji_usage ? "selected" : ""}>Минимально (по умолчанию)</option>
+        <option value="moderate" ${salon.emoji_usage === "moderate" ? "selected" : ""}>Умеренно</option>
+      </select>
+
+      <label>Запрещённые слова и фразы (через запятую)</label>
+      <textarea id="p_banned" rows="3" placeholder="например: скидка, дешево, недорого">${salon.banned_words || ""}</textarea>
+      <p style="margin-top:6px; font-size:12px;">Агент никогда не будет использовать эти слова в переписке с клиентами.</p>
+
+      <button class="btn-primary" onclick="saveProfile()">Сохранить</button>
+    </div>
+  `;
+}
+
+async function saveProfile() {
+  await api("/salon", {
+    method: "PUT",
+    body: JSON.stringify({
+      name: document.getElementById("p_name").value,
+      address: document.getElementById("p_address").value,
+      working_hours: document.getElementById("p_hours").value,
+      tone_of_voice: document.getElementById("p_tone").value,
+      emoji_usage: document.getElementById("p_emoji").value,
+      banned_words: document.getElementById("p_banned").value,
+    }),
+  });
+  alert("Сохранено!");
+}
+
+function render() {
+  document.getElementById("content").innerHTML = `<div class="empty">Загрузка...</div>`;
+  const renderers = {
+    services: renderServices,
+    employees: renderEmployees,
+    rules: renderRules,
+    knowledge: renderKnowledge,
+    conversations: renderConversations,
+    profile: renderProfile,
+  };
+  renderers[currentTab]();
+}
+
+render();
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+</script>
+</body>
+</html>
