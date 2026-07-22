@@ -40,7 +40,8 @@
     position: sticky; top: 0; z-index: 10;
     box-shadow: 0 2px 16px rgba(156, 107, 62, 0.25);
   }
-  .brand-mark { width: 38px; height: 38px; flex-shrink: 0; }
+  /* Логотип вытянут по горизонтали (примерно 1,38:1) — высоту задаём, ширину пускаем свободно */
+  .brand-mark { height: 38px; width: auto; flex-shrink: 0; }
   .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
   header h1 {
     font-family: var(--font-body); font-weight: 300; letter-spacing: 2px;
@@ -141,6 +142,28 @@
   .card-off { opacity: .55; }
   .hint { font-size: 12px; color: var(--muted); margin: 4px 0 10px; }
 
+  /* ---------- ФОРМА ЗАПИСИ ---------- */
+  .chosen-line { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 10px;
+                 padding: 11px 12px; margin-bottom: 12px; font-weight: 600; font-size: 14px;
+                 display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .chosen-line .link-btn { margin: 0; font-weight: 600; }
+  .pick-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+  .pick-list button { text-align: left; background: white; border: 1px solid var(--border);
+                      border-radius: 10px; padding: 10px 12px; cursor: pointer; font-family: inherit;
+                      font-size: 14px; display: flex; justify-content: space-between; gap: 10px; }
+  .pick-list button:hover { border-color: var(--gold-2); background: var(--bg-soft); }
+  .pick-list button span { color: var(--muted); font-size: 13px; }
+  .quick-days { display: flex; gap: 6px; margin: 8px 0 4px; flex-wrap: wrap; }
+  .quick-days button { background: white; border: 1px solid var(--border); border-radius: 999px;
+                       padding: 6px 12px; font-size: 13px; font-family: inherit; cursor: pointer; }
+  .quick-days button:hover { border-color: var(--gold-2); color: var(--gold-mid); }
+  .when-preview { font-size: 14px; font-weight: 600; color: var(--gold-mid); margin: 6px 0 14px; }
+  /* Кнопки сохранения всегда на виду — форма длинная и уезжает за экран */
+  .form-actions { position: sticky; bottom: -18px; display: flex; gap: 8px; margin-top: 18px;
+                  padding: 12px 0; background: linear-gradient(transparent, white 22%); }
+  .form-actions button { margin: 0; }
+  .form-actions .btn-secondary { flex: 0 0 34%; }
+
   .visit-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .visit-thumbs img { width: 60px; height: 60px; border-radius: 8px; object-fit: cover; background: var(--bg); cursor: zoom-in; }
 
@@ -222,11 +245,7 @@
 <body>
 
 <header>
-  <svg class="brand-mark" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <circle cx="24" cy="24" r="17" stroke="white" stroke-width="2"/>
-    <path d="M15 15v18M15 24h7M22 15v18" stroke="white" stroke-width="2" stroke-linecap="round"/>
-    <path d="M32 12l1.4 3.6L37 17l-3.6 1.4L32 22l-1.4-3.6L27 17l3.6-1.4L32 12z" fill="white"/>
-  </svg>
+  <img class="brand-mark" src="logo.svg" alt="Hair Club" width="52" height="38">
   <div class="brand-text">
     <h1>Hair Club</h1>
     <div class="subtitle">Панель владельца</div>
@@ -1112,54 +1131,210 @@ function bookingDuration(booking) {
   return (svc && (svc.duration_max || svc.duration_min)) || 60;
 }
 
-function openVisitForm(booking = {}) {
-  const isEdit = !!booking.id;
-  const employeeOptions = allEmployeesCache.map(e => `<option value="${e.id}" ${booking.employee_id === e.id ? "selected" : ""}>${e.name}</option>`).join("");
-  const serviceOptions = allServicesCache.map(s => `<option value="${s.id}" ${booking.service_id === s.id ? "selected" : ""}>${s.name}</option>`).join("");
-  openModal(`
-    <h2>${isEdit ? "Запись" : "Новая запись"}</h2>
-    <label>Мастер</label>
-    <select id="v_employee"><option value="">—</option>${employeeOptions}</select>
-    <label>Услуга из каталога (необязательно)</label>
-    <select id="v_service"><option value="">—</option>${serviceOptions}</select>
-    <label>Название услуги (если отличается от каталога)</label>
-    <input id="v_label" value="${booking.custom_service_label || ""}" placeholder="например: Korekta 150 gr">
-    <div class="row">
-      <div><label>Дата и время</label><input id="v_datetime" type="datetime-local" value="${(booking.requested_datetime || "").slice(0, 16)}"></div>
-      <div><label>Сумма (PLN)</label><input id="v_amount" type="number" value="${booking.charged_amount || ""}"></div>
-    </div>
-    <label>Сколько займёт, минут</label>
-    <select id="v_duration">
-      ${[60, 90, 120, 150, 180, 210, 240, 270, 300, 360].map(m => `
-        <option value="${m}" ${bookingDuration(booking) === m ? "selected" : ""}>${m} мин · ${Math.floor(m / 60)} ч ${m % 60 ? m % 60 + " мин" : ""}</option>
-      `).join("")}
-    </select>
-    <p style="font-size:11px;color:var(--muted);margin:-6px 0 12px">
-      Запись бронируется с запасом. Поставь фактическое время — освободившиеся часы сразу вернутся в свободные окна.
-    </p>
-    <label>Статус</label>
-    <select id="v_status">
-      <option value="completed" ${booking.status === "completed" ? "selected" : ""}>Завершена</option>
-      <option value="confirmed" ${booking.status === "confirmed" ? "selected" : ""}>Подтверждена</option>
-      <option value="pending" ${booking.status === "pending" || !booking.status ? "selected" : ""}>Новая</option>
-      <option value="cancelled" ${booking.status === "cancelled" ? "selected" : ""}>Отменена</option>
-      <option value="no_show" ${booking.status === "no_show" ? "selected" : ""}>Не пришёл</option>
-    </select>
-    <label>Комментарий</label>
-    <textarea id="v_comment" rows="3">${booking.comment || ""}</textarea>
-    <button class="btn-primary" onclick="saveVisit(${booking.id || "null"})">Сохранить</button>
-    ${isEdit ? `<button class="link-btn" onclick='openVisitPhotos(${JSON.stringify(booking)})'>Фото визита →</button>` : ""}
-    ${isEdit ? `<button class="btn-secondary" onclick="deleteVisit(${booking.id})">Удалить запись</button>` : ""}
-    <button class="btn-secondary" onclick="renderClientCard()">← Назад к записям</button>
-  `);
+// Справочники нужны и в календаре, где карточку клиента ещё не открывали
+async function ensureCaches() {
+  if (!allEmployeesCache.length || !allServicesCache.length) {
+    const [employees, services] = await Promise.all([api("/employees"), api("/services")]);
+    allEmployeesCache = employees;
+    allServicesCache = services;
+  }
 }
 
-async function saveVisit(id) {
-  const start = document.getElementById("v_datetime").value;
+const MONTHS_GEN = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+const WEEKDAYS_FULL = ["воскресенье","понедельник","вторник","среда","четверг","пятница","суббота"];
+
+// «2026-07-28» → «вторник, 28 июля»: родной формат браузера показывает 07/28/2026
+function humanDate(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T00:00:00");
+  if (isNaN(d)) return dateStr;
+  return `${WEEKDAYS_FULL[d.getDay()]}, ${d.getDate()} ${MONTHS_GEN[d.getMonth()]}`;
+}
+
+function fmtDurationLabel(m) {
+  const h = Math.floor(m / 60), min = m % 60;
+  return (h ? h + " ч" : "") + (min ? (h ? " " : "") + min + " мин" : "");
+}
+
+// Мастера, которые делают выбранную услугу. Без услуги — все.
+function employeesForService(serviceId) {
+  if (!serviceId) return allEmployeesCache;
+  const matching = allEmployeesCache.filter(e => (e.service_ids || []).includes(serviceId));
+  return matching.length ? matching : allEmployeesCache;
+}
+
+let visitFormState = {};
+
+async function openVisitForm(booking = {}) {
+  await ensureCaches();
+  const isEdit = !!booking.id;
+
+  visitFormState = {
+    id: booking.id || null,
+    clientId: booking.client_id || (currentClient && currentClient.id) || null,
+    clientName: booking.client_full_name || booking.client_name || (currentClient && currentClient.full_name) || "",
+    serviceId: booking.service_id || null,
+    date: (booking.requested_datetime || "").slice(0, 10) || todayStr(),
+    time: (booking.requested_datetime || "").slice(11, 16) || "10:00",
+    duration: bookingDuration(booking),
+    booking,
+  };
+
+  openModal(`
+    <h2>${isEdit ? "Запись" : "Новая запись"}</h2>
+    <div id="visit_form_body"></div>
+  `);
+  renderVisitFormBody();
+}
+
+function renderVisitFormBody() {
+  const st = visitFormState;
+  const b = st.booking;
+  const isEdit = !!st.id;
+
+  const serviceOptions = allServicesCache
+    .map(s => `<option value="${s.id}" ${st.serviceId === s.id ? "selected" : ""}>${s.name}</option>`).join("");
+
+  const staff = employeesForService(st.serviceId);
+  const employeeOptions = staff
+    .map(e => `<option value="${e.id}" ${b.employee_id === e.id ? "selected" : ""}>${e.name}</option>`).join("");
+
+  // Время шагом 15 минут — родное поле показывает «10:00 AM», что читается плохо
+  const times = [];
+  for (let m = 8 * 60; m <= 21 * 60; m += 15) times.push(fmtMinutes(m));
+
+  document.getElementById("visit_form_body").innerHTML = `
+    ${st.clientId
+      ? `<label>Клиент</label>
+         <div class="chosen-line">${st.clientName || "без имени"}
+           ${!isEdit ? `<button class="link-btn" onclick="visitChangeClient()">сменить</button>` : ""}
+         </div>`
+      : `<label>Клиент</label>
+         <input id="v_client_search" placeholder="Начни вводить имя или телефон..." oninput="visitSearchClients()">
+         <div id="v_client_results" class="pick-list"></div>`}
+
+    <label>Услуга</label>
+    <select id="v_service" onchange="visitServiceChanged()">
+      <option value="">— выбрать из каталога —</option>${serviceOptions}
+    </select>
+
+    <label>Мастер</label>
+    <select id="v_employee">
+      <option value="">— любой —</option>${employeeOptions}
+    </select>
+    ${st.serviceId && staff.length < allEmployeesCache.length
+      ? `<p class="hint">Показаны мастера, которые делают эту услугу.</p>` : ""}
+
+    <label>Название услуги, если отличается от каталога</label>
+    <input id="v_label" value="${b.custom_service_label || ""}" placeholder="например: Korekta 150 gr">
+
+    <label>Когда</label>
+    <div class="row">
+      <div>
+        <input id="v_date" type="date" value="${st.date}" onchange="visitDateChanged(this.value)">
+      </div>
+      <div>
+        <select id="v_time" onchange="visitFormState.time = this.value">
+          ${times.map(t => `<option value="${t}" ${st.time === t ? "selected" : ""}>${t}</option>`).join("")}
+        </select>
+      </div>
+    </div>
+    <div class="quick-days">
+      <button type="button" onclick="visitDateChanged('${todayStr()}', true)">Сегодня</button>
+      <button type="button" onclick="visitDateChanged('${shiftDate(todayStr(), 1)}', true)">Завтра</button>
+      <button type="button" onclick="visitDateChanged('${shiftDate(todayStr(), 7)}', true)">Через неделю</button>
+    </div>
+    <p class="when-preview" id="v_when">${humanDate(st.date)} в ${st.time}</p>
+
+    <label>Сколько займёт</label>
+    <select id="v_duration" onchange="visitFormState.duration = parseInt(this.value)">
+      ${[30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 360].map(m =>
+        `<option value="${m}" ${st.duration === m ? "selected" : ""}>${fmtDurationLabel(m)}</option>`).join("")}
+    </select>
+    <p class="hint">Бронируй с запасом. Поставишь фактическое время — освободившиеся часы сразу вернутся в свободные окна.</p>
+
+    <div class="row">
+      <div><label>Сумма (PLN)</label><input id="v_amount" type="number" value="${b.charged_amount || ""}"></div>
+      <div><label>Статус</label>
+        <select id="v_status">
+          <option value="pending" ${b.status === "pending" || !b.status ? "selected" : ""}>Новая</option>
+          <option value="confirmed" ${b.status === "confirmed" ? "selected" : ""}>Подтверждена</option>
+          <option value="completed" ${b.status === "completed" ? "selected" : ""}>Завершена</option>
+          <option value="cancelled" ${b.status === "cancelled" ? "selected" : ""}>Отменена</option>
+          <option value="no_show" ${b.status === "no_show" ? "selected" : ""}>Не пришёл</option>
+        </select>
+      </div>
+    </div>
+
+    <label>Комментарий</label>
+    <textarea id="v_comment" rows="3">${b.comment || ""}</textarea>
+
+    ${isEdit ? `<button class="link-btn" onclick='openVisitPhotos(${attrJson(b)})'>Фото визита →</button>` : ""}
+    ${isEdit ? `<button class="btn-secondary" onclick="deleteVisit(${st.id})">Удалить запись</button>` : ""}
+
+    <div class="form-actions">
+      <button class="btn-secondary" onclick="closeModal()">Отмена</button>
+      <button class="btn-primary" onclick="saveVisit()">${isEdit ? "Сохранить" : "Готово"}</button>
+    </div>
+  `;
+}
+
+function visitServiceChanged() {
+  const id = parseInt(document.getElementById("v_service").value) || null;
+  visitFormState.serviceId = id;
+  // Длительность подставляем из услуги, чтобы не выставлять руками
+  const svc = allServicesCache.find(s => s.id === id);
+  if (svc) visitFormState.duration = svc.duration_max || svc.duration_min || 60;
+  visitFormState.booking.custom_service_label = document.getElementById("v_label").value;
+  visitFormState.booking.comment = document.getElementById("v_comment").value;
+  renderVisitFormBody();
+}
+
+function visitDateChanged(value, rerender) {
+  visitFormState.date = value;
+  if (rerender) { renderVisitFormBody(); return; }
+  const el = document.getElementById("v_when");
+  if (el) el.textContent = `${humanDate(value)} в ${visitFormState.time}`;
+}
+
+function visitChangeClient() {
+  visitFormState.clientId = null;
+  visitFormState.clientName = "";
+  renderVisitFormBody();
+}
+
+let visitClientTimer = null;
+function visitSearchClients() {
+  clearTimeout(visitClientTimer);
+  visitClientTimer = setTimeout(async () => {
+    const q = document.getElementById("v_client_search").value.trim();
+    const box = document.getElementById("v_client_results");
+    if (q.length < 2) { box.innerHTML = ""; return; }
+    const found = await api(`/clients?q=${encodeURIComponent(q)}`);
+    box.innerHTML = found.length
+      ? found.slice(0, 8).map(c => `
+          <button type="button" onclick="visitPickClient(${c.id}, ${attrJson(c.full_name || "")})">
+            ${c.full_name || "без имени"} <span>${c.phone || ""}</span>
+          </button>`).join("")
+      : `<p class="hint">Никого не нашлось. Клиента можно завести на вкладке «Клиенты».</p>`;
+  }, 250);
+}
+
+function visitPickClient(id, name) {
+  visitFormState.clientId = id;
+  visitFormState.clientName = name;
+  renderVisitFormBody();
+}
+
+async function saveVisit() {
+  const st = visitFormState;
+  if (!st.clientId) { alert("Выбери клиента"); return; }
+
+  const start = `${st.date}T${document.getElementById("v_time").value}`;
   const minutes = parseInt(document.getElementById("v_duration").value) || 60;
 
   const payload = {
-    client_id: currentClient.id,
+    client_id: st.clientId,
     employee_id: parseInt(document.getElementById("v_employee").value) || null,
     service_id: parseInt(document.getElementById("v_service").value) || null,
     custom_service_label: document.getElementById("v_label").value || null,
@@ -1169,11 +1344,18 @@ async function saveVisit(id) {
     status: document.getElementById("v_status").value,
     comment: document.getElementById("v_comment").value,
   };
-  if (id) {
-    await api(`/bookings/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+
+  if (st.id) {
+    await api(`/bookings/${st.id}`, { method: "PUT", body: JSON.stringify(payload) });
   } else {
     await api("/bookings", { method: "POST", body: JSON.stringify(payload) });
   }
+  afterVisitSaved();
+}
+
+// Из карточки клиента возвращаемся к записям, из календаря — обновляем сетку
+function afterVisitSaved() {
+  if (currentTab === "calendar") { closeModal(); renderCalendar(); return; }
   clientCardTab = "visits";
   renderClientCard();
 }
@@ -1181,8 +1363,7 @@ async function saveVisit(id) {
 async function deleteVisit(id) {
   if (!confirm("Удалить эту запись?")) return;
   await api(`/bookings/${id}`, { method: "DELETE" });
-  clientCardTab = "visits";
-  renderClientCard();
+  afterVisitSaved();
 }
 
 // JSON внутрь HTML-атрибута: экранируем кавычки и амперсанд, иначе подпись с ' ломает разметку
