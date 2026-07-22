@@ -167,8 +167,8 @@ async function getBusyRanges(db, employeeId, dateStr) {
   }
 
   const { results: timeOff } = await db
-    .prepare("SELECT start_minutes, end_minutes FROM employee_time_off WHERE employee_id = ? AND date = ?")
-    .bind(employeeId, dateStr)
+    .prepare("SELECT start_minutes, end_minutes FROM employee_time_off WHERE employee_id = ? AND date <= ? AND COALESCE(date_end, date) >= ?")
+    .bind(employeeId, dateStr, dateStr)
     .all();
 
   for (const t of timeOff) {

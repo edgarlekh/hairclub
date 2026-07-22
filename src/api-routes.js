@@ -185,8 +185,8 @@ export async function handleApiRequest(request, env, path) {
   if (path === "/api/employees" && method === "POST") {
     const b = await request.json();
     const result = await db
-      .prepare("INSERT INTO employees (salon_id, name, working_schedule, photo_url) VALUES (?, ?, ?, ?) RETURNING id")
-      .bind(SALON_ID, b.name, b.working_schedule || "", b.photo_url || "")
+      .prepare("INSERT INTO employees (salon_id, name, working_schedule, photo_url, color) VALUES (?, ?, ?, ?, ?) RETURNING id")
+      .bind(SALON_ID, b.name, b.working_schedule || "", b.photo_url || "", b.color || null)
       .first();
     if (Array.isArray(b.service_ids) && b.service_ids.length) {
       for (const serviceId of b.service_ids) {
@@ -203,8 +203,8 @@ export async function handleApiRequest(request, env, path) {
     const id = employeeMatch[1];
     const b = await request.json();
     await db
-      .prepare("UPDATE employees SET name=?, working_schedule=?, photo_url=? WHERE id=?")
-      .bind(b.name, b.working_schedule || "", b.photo_url || "", id)
+      .prepare("UPDATE employees SET name=?, working_schedule=?, photo_url=?, color=COALESCE(?, color) WHERE id=?")
+      .bind(b.name, b.working_schedule || "", b.photo_url || "", b.color || null, id)
       .run();
     if (Array.isArray(b.service_ids)) {
       await db.prepare("DELETE FROM employee_services WHERE employee_id=?").bind(id).run();
@@ -236,7 +236,7 @@ export async function handleApiRequest(request, env, path) {
 
     const { results: employees } = await db
       .prepare(
-        `SELECT e.id, e.name, e.photo_url, s.start_minutes, s.end_minutes
+        `SELECT e.id, e.name, e.photo_url, e.color, s.start_minutes, s.end_minutes
          FROM employees e
          LEFT JOIN employee_schedule s ON s.employee_id = e.id AND s.weekday = ?
          WHERE e.salon_id = ?
@@ -263,8 +263,8 @@ export async function handleApiRequest(request, env, path) {
       .all();
 
     const { results: timeOff } = await db
-      .prepare("SELECT employee_id, start_minutes, end_minutes, reason FROM employee_time_off WHERE date = ?")
-      .bind(date)
+      .prepare("SELECT employee_id, start_minutes, end_minutes, reason FROM employee_time_off WHERE date <= ? AND COALESCE(date_end, date) >= ?")
+      .bind(date, date)
       .all();
 
     return j({ date, weekday, employees, bookings, timeOff });
@@ -318,8 +318,9 @@ export async function handleApiRequest(request, env, path) {
   // --- Отгулы, отпуска, перерывы ---
   const timeOffMatch = path.match(/^\/api\/employees\/(\d+)\/time-off$/);
   if (timeOffMatch && method === "GET") {
+    // Показываем то, что ещё не закончилось (учитываем дату окончания диапазона)
     const { results } = await db
-      .prepare("SELECT * FROM employee_time_off WHERE employee_id = ? AND date >= date('now','-1 day') ORDER BY date")
+      .prepare("SELECT * FROM employee_time_off WHERE employee_id = ? AND COALESCE(date_end, date) >= date('now','-1 day') ORDER BY date")
       .bind(timeOffMatch[1])
       .all();
     return j(results);
@@ -327,11 +328,13 @@ export async function handleApiRequest(request, env, path) {
   if (timeOffMatch && method === "POST") {
     const b = await request.json();
     if (!b.date) return j({ error: "Нужна дата" }, 400);
+    // date_end пишем только для настоящего диапазона (последний день позже первого)
+    const dateEnd = b.date_end && b.date_end > b.date ? b.date_end : null;
     const result = await db
       .prepare(
-        "INSERT INTO employee_time_off (employee_id, date, start_minutes, end_minutes, reason) VALUES (?, ?, ?, ?, ?) RETURNING id"
+        "INSERT INTO employee_time_off (employee_id, date, date_end, start_minutes, end_minutes, reason) VALUES (?, ?, ?, ?, ?, ?) RETURNING id"
       )
-      .bind(timeOffMatch[1], b.date, b.start_minutes ?? null, b.end_minutes ?? null, b.reason || "")
+      .bind(timeOffMatch[1], b.date, dateEnd, b.start_minutes ?? null, b.end_minutes ?? null, b.reason || "")
       .first();
     return j({ id: result.id });
   }

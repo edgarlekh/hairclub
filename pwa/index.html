@@ -164,6 +164,17 @@
   .form-actions button { margin: 0; }
   .form-actions .btn-secondary { flex: 0 0 34%; }
 
+  /* Переключатель «весь день / часть дня» — вместо непонятной галочки */
+  .seg { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 12px; }
+  .seg button { flex: 1; background: white; border: none; padding: 10px; font-family: inherit; font-size: 14px;
+                cursor: pointer; color: var(--muted); border-right: 1px solid var(--border); }
+  .seg button:last-child { border-right: none; }
+  .seg button.active { background: var(--gradient); color: white; font-weight: 600; }
+  .timeoff-item { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+                  padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 6px; }
+  .timeoff-item b { display: block; font-size: 14px; }
+  .timeoff-item span { font-size: 12px; color: var(--muted); }
+
   .visit-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .visit-thumbs img { width: 60px; height: 60px; border-radius: 8px; object-fit: cover; background: var(--bg); cursor: zoom-in; }
 
@@ -224,22 +235,28 @@
   .cal-ev:hover { filter: brightness(1.06); }
   .cal-ev b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cal-ev i { font-style: normal; opacity: .85; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .cal-ev.done { background: #8d9a8f; }
-  .cal-ev.cancelled { background: #b9b3ad; text-decoration: line-through; }
-  .cal-ev.off { background: rgba(90,80,70,.5); font-size: 10px; }
+  .cal-ev.cancelled { text-decoration: line-through; }
+  .cal-ev.off { background: rgba(90,80,70,.5) !important; font-size: 10px; }
+  .cal-col { cursor: copy; }              /* намёк, что по пустому месту можно кликнуть */
   .cal-now { position: absolute; left: 0; right: 0; height: 2px; background: var(--terracotta); z-index: 2; pointer-events: none; }
   .cal-now::before { content: ""; position: absolute; left: -3px; top: -3px; width: 8px; height: 8px;
                      border-radius: 50%; background: var(--terracotta); }
 
-  /* На телефоне колонки не помещаются — показываем одного мастера */
-  .cal-picker { display: none; gap: 6px; margin-bottom: 10px; overflow-x: auto; padding-bottom: 2px; }
-  .cal-picker button { flex: none; border: 1px solid var(--border); background: white; border-radius: 999px;
-                       padding: 7px 13px; font-size: 13px; font-family: inherit; cursor: pointer; }
+  /* Переключатель мастеров: «Все» + по одному на каждого, с цветной точкой */
+  .cal-picker { display: flex; gap: 6px; margin-bottom: 10px; overflow-x: auto; padding-bottom: 2px; }
+  .cal-picker button { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border);
+                       background: white; border-radius: 999px; padding: 7px 13px; font-size: 13px; font-family: inherit; cursor: pointer; }
   .cal-picker button.active { background: var(--gradient); color: white; border-color: transparent; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+  .cal-head .dot { margin-right: 5px; vertical-align: middle; }
   @media (max-width: 640px) {
-    .cal-picker { display: flex; }
     .cal-stat b { font-size: 17px; }
   }
+
+  /* Палитра выбора цвета мастера */
+  .color-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
+  .color-swatch { width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
+  .color-swatch.active { border-color: var(--text); box-shadow: 0 0 0 2px white inset; }
 </style>
 </head>
 <body>
@@ -637,6 +654,12 @@ async function openEmployeeForm(employee = {}) {
     <h2>${isEdit ? "Редактировать мастера" : "Новый мастер"}</h2>
     <label>Имя</label>
     <input id="e_name" value="${employee.name || ""}">
+    <label>Цвет в календаре</label>
+    <div class="color-grid" id="e_colors">
+      ${CAL_PALETTE.map(c => `
+        <div class="color-swatch ${employee.color === c ? "active" : ""}" style="background:${c}"
+             data-color="${c}" onclick="pickEmployeeColor('${c}')"></div>`).join("")}
+    </div>
     <label>График работы</label>
     <div class="sched">${renderScheduleRows(schedule)}</div>
     <p class="hint">Снятая галочка — выходной. Записаться вне этих часов будет нельзя.</p>
@@ -657,6 +680,10 @@ async function openEmployeeForm(employee = {}) {
   `);
 }
 
+function pickEmployeeColor(c) {
+  document.querySelectorAll("#e_colors .color-swatch").forEach(s => s.classList.toggle("active", s.dataset.color === c));
+}
+
 async function saveEmployee(id) {
   const name = document.getElementById("e_name").value.trim();
   if (!name) { alert("Укажи имя мастера"); return; }
@@ -665,7 +692,9 @@ async function saveEmployee(id) {
   if (sched.error) { alert(sched.error); return; }
 
   const service_ids = Array.from(document.querySelectorAll(".e_service_cb:checked")).map(cb => parseInt(cb.value));
-  const payload = { name, service_ids };
+  const activeSwatch = document.querySelector("#e_colors .color-swatch.active");
+  const color = activeSwatch ? activeSwatch.dataset.color : null;
+  const payload = { name, service_ids, color };
 
   let employeeId = id;
   if (id) {
@@ -681,52 +710,87 @@ async function saveEmployee(id) {
 }
 
 // ---------- ОТПУСКА И ОТГУЛЫ ----------
+const MONTHS_SHORT = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
+function humanDateShort(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T00:00:00");
+  if (isNaN(d)) return dateStr;
+  const cur = new Date().getFullYear();
+  return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}${d.getFullYear() !== cur ? " " + d.getFullYear() : ""}`;
+}
+// «23 июл» для одного дня или «23 июл – 5 авг» для диапазона
+function timeOffPeriod(t) {
+  const from = humanDateShort(t.date);
+  if (t.date_end && t.date_end > t.date) return `${from} – ${humanDateShort(t.date_end)}`;
+  return from;
+}
+let timeOffAllDay = true;
+
 async function openTimeOff(employee) {
   const items = await api(`/employees/${employee.id}/time-off`);
+  timeOffAllDay = true;
   openModal(`
     <h2>Отпуска и отгулы: ${employee.name}</h2>
     <div id="timeoff_list">${
       items.length
         ? items.map(t => `
-          <div class="photo-row">
-            <div class="photo-info" style="font-size:13px;color:var(--text)">
-              ${t.date}${t.start_minutes == null ? " · весь день" : ` · ${minutesToTime(t.start_minutes)}–${minutesToTime(t.end_minutes)}`}
-              ${t.reason ? `<br><span style="color:var(--muted)">${t.reason}</span>` : ""}
+          <div class="timeoff-item">
+            <div>
+              <b>${timeOffPeriod(t)}</b>
+              <span>${t.start_minutes == null ? "весь день" : `${minutesToTime(t.start_minutes)}–${minutesToTime(t.end_minutes)}`}${t.reason ? " · " + t.reason : ""}</span>
             </div>
             <button class="photo-del" onclick='deleteTimeOff(${attrJson(employee)}, ${t.id})' title="Удалить">×</button>
           </div>`).join("")
         : `<p class="hint">Ничего не запланировано.</p>`
     }</div>
-    <label>Дата</label>
-    <input id="to_date" type="date">
-    <label><input type="checkbox" id="to_allday" checked onchange="toggleAllDay()"> Весь день</label>
+
+    <h3 style="margin:18px 0 10px">Добавить</h3>
+    <div class="row">
+      <div><label>С какого дня</label><input id="to_date" type="date" value="${todayStr()}"></div>
+      <div><label>По какой день</label><input id="to_date_end" type="date" placeholder="если один день — пусто"></div>
+    </div>
+    <p class="hint">Для отпуска на неделю-две укажи оба дня. Для одного дня второе поле оставь пустым.</p>
+
+    <label>На сколько</label>
+    <div class="seg" id="to_seg">
+      <button type="button" class="active" onclick="setTimeOffAllDay(true)">Весь день</button>
+      <button type="button" onclick="setTimeOffAllDay(false)">Часть дня</button>
+    </div>
     <div class="row" id="to_times" style="display:none">
       <div><label>С</label><select id="to_from">${timeOptions(540)}</select></div>
       <div><label>До</label><select id="to_to">${timeOptions(1080)}</select></div>
     </div>
+
     <label>Причина (необязательно)</label>
     <input id="to_reason" placeholder="отпуск, обучение, обед">
-    <button class="btn-primary" onclick='addTimeOff(${attrJson(employee)})'>Добавить</button>
-    <button class="btn-secondary" onclick='openEmployeeForm(${attrJson(employee)})'>← Назад к мастеру</button>
+
+    <div class="form-actions">
+      <button class="btn-secondary" onclick='openEmployeeForm(${attrJson(employee)})'>← К мастеру</button>
+      <button class="btn-primary" onclick='addTimeOff(${attrJson(employee)})'>Добавить</button>
+    </div>
   `);
 }
 
-function toggleAllDay() {
-  document.getElementById("to_times").style.display =
-    document.getElementById("to_allday").checked ? "none" : "flex";
+function setTimeOffAllDay(v) {
+  timeOffAllDay = v;
+  document.querySelectorAll("#to_seg button").forEach((b, i) => b.classList.toggle("active", (i === 0) === v));
+  document.getElementById("to_times").style.display = v ? "none" : "flex";
 }
 
 async function addTimeOff(employee) {
   const date = document.getElementById("to_date").value;
-  if (!date) { alert("Выбери дату"); return; }
-  const allDay = document.getElementById("to_allday").checked;
+  if (!date) { alert("Выбери дату начала"); return; }
+  const dateEndRaw = document.getElementById("to_date_end").value;
+  if (dateEndRaw && dateEndRaw < date) { alert("Дата окончания раньше начала"); return; }
+
   const body = {
     date,
-    start_minutes: allDay ? null : Number(document.getElementById("to_from").value),
-    end_minutes: allDay ? null : Number(document.getElementById("to_to").value),
+    date_end: dateEndRaw || null,
+    start_minutes: timeOffAllDay ? null : Number(document.getElementById("to_from").value),
+    end_minutes: timeOffAllDay ? null : Number(document.getElementById("to_to").value),
     reason: document.getElementById("to_reason").value.trim(),
   };
-  if (!allDay && body.start_minutes >= body.end_minutes) { alert("Начало должно быть раньше конца"); return; }
+  if (!timeOffAllDay && body.start_minutes >= body.end_minutes) { alert("Начало должно быть раньше конца"); return; }
   await api(`/employees/${employee.id}/time-off`, { method: "POST", body: JSON.stringify(body) });
   openTimeOff(employee);
 }
@@ -748,7 +812,13 @@ async function deleteEmployee(id) {
 const CAL_ROW_H = 44;        // высота одного часа в пикселях
 const CAL_MIN_H = 18;        // минимальная высота блока, чтобы короткая запись читалась
 let calDate = todayStr();
-let calMobileEmployee = null; // на телефоне показываем одного мастера
+let calFilterEmployee = null; // null = все мастера; иначе id одного выбранного
+
+// Запасная палитра, если у мастера ещё не задан цвет
+const CAL_PALETTE = ["#b8824f", "#7c9473", "#9c6b8e", "#6b8ea4", "#c08552", "#8a7a9c"];
+function empColor(emp, idx) {
+  return emp.color || CAL_PALETTE[idx % CAL_PALETTE.length];
+}
 
 function todayStr(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -782,11 +852,13 @@ async function renderCalendar() {
   );
   if (!staff.length) staff = data.employees;
 
-  const onPhone = window.matchMedia("(max-width: 640px)").matches;
-  if (onPhone) {
-    if (!staff.some(e => e.id === calMobileEmployee)) calMobileEmployee = staff[0] ? staff[0].id : null;
-  }
-  const shown = onPhone && calMobileEmployee ? staff.filter(e => e.id === calMobileEmployee) : staff;
+  // Если выбранного мастера сегодня нет среди работающих — сбрасываем фильтр
+  if (calFilterEmployee && !staff.some(e => e.id === calFilterEmployee)) calFilterEmployee = null;
+  const shown = calFilterEmployee ? staff.filter(e => e.id === calFilterEmployee) : staff;
+
+  // Цвет по id, чтобы он совпадал в шапке, на записях и в переключателе
+  const colorById = {};
+  data.employees.forEach((e, i) => { colorById[e.id] = empColor(e, i); });
 
   // Границы сетки: от начала самой ранней смены до конца самой поздней,
   // но с запасом, если запись выходит за график.
@@ -837,17 +909,21 @@ async function renderCalendar() {
     </div>
 
     <div class="cal-picker">
+      <button class="${!calFilterEmployee ? "active" : ""}" onclick="calPickEmployee(null)">Все</button>
       ${staff.map(e => `
-        <button class="${e.id === calMobileEmployee ? "active" : ""}" onclick="calPickEmployee(${e.id})">${e.name}</button>
+        <button class="${e.id === calFilterEmployee ? "active" : ""}" onclick="calPickEmployee(${e.id})">
+          <i class="dot" style="background:${colorById[e.id]}"></i>${e.name}
+        </button>
       `).join("")}
     </div>
 
     ${!shown.length ? `<p class="empty">На этот день нет ни смен, ни записей.</p>` : `
     <div class="cal-wrap"><div class="cal-scroll">
-      <div class="cal-grid" style="grid-template-columns: 46px repeat(${shown.length}, minmax(140px, 1fr));">
+      <div class="cal-grid" style="grid-template-columns: 46px repeat(${shown.length}, minmax(${shown.length === 1 ? 220 : 140}px, 1fr));">
         <div class="cal-head corner"></div>
         ${shown.map(e => `
-          <div class="cal-head">${e.name}
+          <div class="cal-head" style="box-shadow: inset 0 -3px 0 ${colorById[e.id]}">
+            <i class="dot" style="background:${colorById[e.id]}"></i>${e.name}
             <small>${e.start_minutes != null ? fmtMinutes(e.start_minutes) + "–" + fmtMinutes(e.end_minutes) : "выходной"}</small>
           </div>`).join("")}
 
@@ -855,7 +931,7 @@ async function renderCalendar() {
           ${hours.map(h => `<div style="height:${CAL_ROW_H}px">${fmtMinutes(h)}</div>`).join("")}
         </div>
 
-        ${shown.map(e => renderCalColumn(e, data, { from, to, gridH, posOf, isToday })).join("")}
+        ${shown.map(e => renderCalColumn(e, data, { from, to, gridH, posOf, isToday, color: colorById[e.id] })).join("")}
       </div>
     </div></div>`}
   `;
@@ -868,7 +944,7 @@ async function renderCalendar() {
   }
 }
 
-function renderCalColumn(emp, data, { from, to, gridH, posOf, isToday }) {
+function renderCalColumn(emp, data, { from, to, gridH, posOf, isToday, color }) {
   const events = data.bookings.filter(b => b.employee_id === emp.id);
   const offs = data.timeOff.filter(t => t.employee_id === emp.id);
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
@@ -883,7 +959,7 @@ function renderCalColumn(emp, data, { from, to, gridH, posOf, isToday }) {
   }
 
   return `
-    <div class="cal-col" style="height:${gridH}px">
+    <div class="cal-col" style="height:${gridH}px" onclick="calColClick(event, ${emp.id}, ${from})" title="Нажми на свободное место, чтобы создать запись">
       ${offBlocks.map(o => `<div class="cal-off" style="position:absolute;left:0;right:0;top:${posOf(o.start)}px;height:${posOf(o.end) - posOf(o.start)}px"></div>`).join("")}
       ${Array.from({ length: (to - from) / 60 }, (_, i) => `
         <div class="cal-hour" style="position:absolute;left:0;right:0;top:${i * CAL_ROW_H}px;height:${CAL_ROW_H}px">
@@ -892,19 +968,23 @@ function renderCalColumn(emp, data, { from, to, gridH, posOf, isToday }) {
 
       ${offs.map(t => {
         const s = t.start_minutes ?? from, e = t.end_minutes ?? to;
-        return `<div class="cal-ev off" style="top:${posOf(s)}px;height:${Math.max(CAL_MIN_H, posOf(e) - posOf(s))}px">
+        return `<div class="cal-ev off" onclick="event.stopPropagation()" style="top:${posOf(s)}px;height:${Math.max(CAL_MIN_H, posOf(e) - posOf(s))}px">
                   <b>${t.reason || "Не работает"}</b></div>`;
       }).join("")}
 
       ${layoutEvents(events).map(({ b, s, e, lane, lanes }) => {
-        const cls = ["cancelled", "no_show"].includes(b.status) ? "cancelled" : b.status === "completed" ? "done" : "";
+        const muted = ["cancelled", "no_show"].includes(b.status);
+        const done = b.status === "completed";
         const name = b.client_full_name || b.client_name || "Без имени";
         const label = b.custom_service_label || b.service_name || "";
         const w = 100 / lanes;
-        return `<div class="cal-ev ${cls}"
+        // Отменённые — блёклые, завершённые — приглушённый цвет, остальные — полный цвет мастера
+        const bg = muted ? "#c9c2ba" : done ? color + "cc" : color;
+        return `<div class="cal-ev${muted ? " cancelled" : ""}"
                      style="top:${posOf(s)}px;height:${Math.max(CAL_MIN_H, posOf(e) - posOf(s))}px;
-                            left:calc(${lane * w}% + 3px); right:auto; width:calc(${w}% - 6px)"
-                     onclick='openVisitForm(${JSON.stringify(b).replace(/'/g, "&#39;")})' title="${fmtMinutes(s)}–${fmtMinutes(e)} · ${name} · ${label}">
+                            left:calc(${lane * w}% + 3px); right:auto; width:calc(${w}% - 6px);
+                            background:${bg}"
+                     onclick='event.stopPropagation(); openVisitForm(${JSON.stringify(b).replace(/'/g, "&#39;")})' title="${fmtMinutes(s)}–${fmtMinutes(e)} · ${name} · ${label}">
                   <b>${fmtMinutes(s)} ${name}</b><i>${label}</i>
                 </div>`;
       }).join("")}
@@ -912,6 +992,16 @@ function renderCalColumn(emp, data, { from, to, gridH, posOf, isToday }) {
       ${isToday && nowMin > from && nowMin < to
         ? `<div class="cal-now" style="top:${posOf(nowMin)}px"></div>` : ""}
     </div>`;
+}
+
+// Клик по свободному месту колонки → новая запись этому мастеру на это время
+function calColClick(event, employeeId, from) {
+  const col = event.currentTarget;
+  const y = event.clientY - col.getBoundingClientRect().top;
+  let minutes = from + Math.round((y / CAL_ROW_H * 60) / 30) * 30; // округляем к получасу
+  minutes = Math.max(0, Math.min(23 * 60 + 30, minutes));
+  const time = fmtMinutes(minutes);
+  openVisitForm({ requested_datetime: `${calDate}T${time}`, employee_id: employeeId });
 }
 
 // Пересекающиеся по времени записи ставим рядом, а не друг на друга.
@@ -943,7 +1033,7 @@ function layoutEvents(events) {
 
 function calShift(days) { calDate = shiftDate(calDate, days); renderCalendar(); }
 function calSet(value) { if (value) { calDate = value; renderCalendar(); } }
-function calPickEmployee(id) { calMobileEmployee = id; renderCalendar(); }
+function calPickEmployee(id) { calFilterEmployee = id; renderCalendar(); }
 
 // ---------- КЛИЕНТЫ ----------
 let currentClient = null;
