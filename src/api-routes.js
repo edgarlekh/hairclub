@@ -37,10 +37,51 @@ export async function handleApiRequest(request, env, path) {
     return j({ ok: true });
   }
 
+  // --- Категории услуг ---
+  if (path === "/api/service-categories" && method === "GET") {
+    const { results } = await db
+      .prepare("SELECT * FROM service_categories WHERE salon_id = ? ORDER BY sort_order, name")
+      .bind(SALON_ID)
+      .all();
+    return j(results);
+  }
+  if (path === "/api/service-categories" && method === "POST") {
+    const b = await request.json();
+    if (!b.name || !String(b.name).trim()) return j({ error: "Нужно название категории" }, 400);
+    const result = await db
+      .prepare(
+        `INSERT INTO service_categories (salon_id, name, color, sort_order) VALUES (?, ?, ?, ?) RETURNING id`
+      )
+      .bind(SALON_ID, String(b.name).trim(), b.color || null, b.sort_order ?? 99)
+      .first();
+    return j({ id: result.id });
+  }
+  const categoryMatch = path.match(/^\/api\/service-categories\/(\d+)$/);
+  if (categoryMatch && method === "PUT") {
+    const b = await request.json();
+    await db
+      .prepare("UPDATE service_categories SET name=?, color=?, sort_order=? WHERE id=? AND salon_id=?")
+      .bind(String(b.name || "").trim(), b.color || null, b.sort_order ?? 99, categoryMatch[1], SALON_ID)
+      .run();
+    return j({ ok: true });
+  }
+  if (categoryMatch && method === "DELETE") {
+    // Услуги не удаляем — они просто остаются без категории
+    await db.prepare("UPDATE services SET category_id = NULL WHERE category_id = ?").bind(categoryMatch[1]).run();
+    await db.prepare("DELETE FROM service_categories WHERE id=? AND salon_id=?").bind(categoryMatch[1], SALON_ID).run();
+    return j({ ok: true });
+  }
+
   // --- Услуги ---
   if (path === "/api/services" && method === "GET") {
     const { results } = await db
-      .prepare("SELECT * FROM services WHERE salon_id = ?")
+      .prepare(
+        `SELECT s.*, c.name AS category_name, c.color AS category_color
+         FROM services s
+         LEFT JOIN service_categories c ON c.id = s.category_id
+         WHERE s.salon_id = ?
+         ORDER BY c.sort_order, s.name`
+      )
       .bind(SALON_ID)
       .all();
     return j(results);
@@ -49,10 +90,15 @@ export async function handleApiRequest(request, env, path) {
     const b = await request.json();
     const result = await db
       .prepare(
-        `INSERT INTO services (salon_id, name, category, price_min, price_max, currency, duration_minutes, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+        `INSERT INTO services (salon_id, category_id, name, price_min, price_max, currency, duration_min, duration_max, description, active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
       )
-      .bind(SALON_ID, b.name, b.category || null, b.price_min, b.price_max, b.currency || "PLN", b.duration_minutes, b.description || "")
+      .bind(
+        SALON_ID, b.category_id || null, b.name,
+        b.price_min ?? null, b.price_max ?? null, b.currency || "PLN",
+        b.duration_min ?? null, b.duration_max ?? null,
+        b.description || "", b.active === 0 ? 0 : 1
+      )
       .first();
     return j({ id: result.id });
   }
@@ -62,9 +108,15 @@ export async function handleApiRequest(request, env, path) {
     const b = await request.json();
     await db
       .prepare(
-        `UPDATE services SET name=?, category=?, price_min=?, price_max=?, duration_minutes=?, description=? WHERE id=?`
+        `UPDATE services SET category_id=?, name=?, price_min=?, price_max=?, duration_min=?, duration_max=?, description=?, active=?
+         WHERE id=?`
       )
-      .bind(b.name, b.category || null, b.price_min, b.price_max, b.duration_minutes, b.description || "", id)
+      .bind(
+        b.category_id || null, b.name,
+        b.price_min ?? null, b.price_max ?? null,
+        b.duration_min ?? null, b.duration_max ?? null,
+        b.description || "", b.active === 0 ? 0 : 1, id
+      )
       .run();
     return j({ ok: true });
   }

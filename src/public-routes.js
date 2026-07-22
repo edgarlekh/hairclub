@@ -25,7 +25,15 @@ export async function handlePublicRequest(request, env, path) {
 
   if (path === "/public/services" && method === "GET") {
     const { results } = await db
-      .prepare("SELECT id, name, category, price_min, price_max, currency, duration_minutes, description FROM services WHERE salon_id = ?")
+      .prepare(
+        `SELECT s.id, s.name, s.price_min, s.price_max, s.currency,
+                s.duration_min, s.duration_max, s.description,
+                s.category_id, c.name AS category_name
+         FROM services s
+         LEFT JOIN service_categories c ON c.id = s.category_id
+         WHERE s.salon_id = ? AND s.active = 1
+         ORDER BY c.sort_order, s.name`
+      )
       .bind(SALON_ID)
       .all();
     return j(results);

@@ -44,10 +44,16 @@ function rankBySimilarity(query, candidates, textFn, topK) {
 
 export async function retrieveServices(db, salonId, query, topK = 3) {
   const { results } = await db
-    .prepare("SELECT * FROM services WHERE salon_id = ?")
+    .prepare(
+      `SELECT s.*, c.name AS category_name
+       FROM services s
+       LEFT JOIN service_categories c ON c.id = s.category_id
+       WHERE s.salon_id = ? AND s.active = 1`
+    )
     .bind(salonId)
     .all();
-  return rankBySimilarity(query, results, (s) => `${s.name} ${s.description}`, topK);
+  // Категорию тоже учитываем при поиске: «хочу что-то для ресниц» должно находить нужную группу
+  return rankBySimilarity(query, results, (s) => `${s.name} ${s.category_name || ""} ${s.description || ""}`, topK);
 }
 
 export async function retrievePhotos(db, salonId, query, topK = 2) {

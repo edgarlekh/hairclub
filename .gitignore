@@ -6,3 +6,4 @@ node_modules/
 migrations/003_import_clients.sql
 migrations/004_import_bumpix.sql
 *.log
+migrations/006_import_services.sql

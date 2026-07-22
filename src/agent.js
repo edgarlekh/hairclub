@@ -63,12 +63,23 @@ const TOOLS = [
   },
 ];
 
+// Цена и длительность могут быть диапазоном (разные мастера / разная длина волос)
+function formatRange(min, max, unit) {
+  if (min == null && max == null) return "—";
+  if (min == null || max == null || min === max) return `${min ?? max} ${unit}`;
+  return `${min}–${max} ${unit}`;
+}
+
 function formatServices(services) {
   if (!services.length) return "(ничего не найдено по запросу)";
   return services
     .map(
       (s) =>
-        `- id=${s.id} | ${s.name} | ${s.price_min}-${s.price_max} ${s.currency || "PLN"} | ${s.duration_minutes} мин | ${s.description}`
+        `- id=${s.id} | ${s.name}` +
+        (s.category_name ? ` | ${s.category_name}` : "") +
+        ` | ${formatRange(s.price_min, s.price_max, s.currency || "PLN")}` +
+        ` | ${formatRange(s.duration_min, s.duration_max, "мин")}` +
+        (s.description ? ` | ${s.description}` : "")
     )
     .join("\n");
 }

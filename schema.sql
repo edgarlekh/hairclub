@@ -12,16 +12,27 @@ CREATE TABLE IF NOT EXISTS salons (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS services (
+CREATE TABLE IF NOT EXISTS service_categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     salon_id INTEGER NOT NULL,
     name TEXT NOT NULL,
-    category TEXT,
+    color TEXT,
+    sort_order INTEGER DEFAULT 0
+);
+
+-- Цена и длительность — диапазоны: разные мастера и разная длина волос дают разную цифру
+CREATE TABLE IF NOT EXISTS services (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    salon_id INTEGER NOT NULL,
+    category_id INTEGER REFERENCES service_categories(id),
+    name TEXT NOT NULL,
     price_min REAL,
     price_max REAL,
     currency TEXT DEFAULT 'PLN',
-    duration_minutes INTEGER,
-    description TEXT
+    duration_min INTEGER,
+    duration_max INTEGER,
+    description TEXT,
+    active INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS service_photos (

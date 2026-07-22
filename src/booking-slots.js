@@ -49,7 +49,7 @@ export async function getAvailableSlots(db, employeeId, serviceId, dateStr) {
   // Существующие подтверждённые/ожидающие брони этого мастера на эту дату
   const { results: existingBookings } = await db
     .prepare(
-      `SELECT b.requested_datetime, s.duration_minutes FROM bookings b
+      `SELECT b.requested_datetime, COALESCE(s.duration_max, s.duration_min, 60) AS duration_minutes FROM bookings b
        JOIN services s ON b.service_id = s.id
        WHERE b.employee_id = ? AND b.requested_datetime LIKE ? AND b.status != 'cancelled'`
     )
@@ -62,7 +62,8 @@ export async function getAvailableSlots(db, employeeId, serviceId, dateStr) {
     return { start: startMin, end: startMin + (b.duration_minutes || 60) };
   });
 
-  const duration = service.duration_minutes || 60;
+  // Резервируем по максимальной длительности услуги — иначе долгий вариант наложится на следующего клиента
+  const duration = service.duration_max || service.duration_min || 60;
   const stepMinutes = 30; // шаг сетки слотов
   const slots = [];
 
@@ -100,15 +101,15 @@ export async function createBookingSafe(db, { serviceId, employeeId, clientName,
   const requestedDatetime = `${dateStr}T${timeStr}:00`;
 
   // Повторная проверка перед записью — защита от двойного бронирования
-  const service = await db.prepare("SELECT duration_minutes FROM services WHERE id = ?").bind(serviceId).first();
-  const duration = service?.duration_minutes || 60;
+  const service = await db.prepare("SELECT duration_min, duration_max FROM services WHERE id = ?").bind(serviceId).first();
+  const duration = service?.duration_max || service?.duration_min || 60;
   const [h, m] = timeStr.split(":").map(Number);
   const startMin = h * 60 + m;
   const endMin = startMin + duration;
 
   const { results: conflicts } = await db
     .prepare(
-      `SELECT b.requested_datetime, s.duration_minutes FROM bookings b
+      `SELECT b.requested_datetime, COALESCE(s.duration_max, s.duration_min, 60) AS duration_minutes FROM bookings b
        JOIN services s ON b.service_id = s.id
        WHERE b.employee_id = ? AND b.requested_datetime LIKE ? AND b.status != 'cancelled'`
     )
