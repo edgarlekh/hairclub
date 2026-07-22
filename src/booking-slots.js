@@ -264,12 +264,16 @@ export async function createBookingSafe(db, { serviceId, employeeId, clientName,
 
   const clientId = await upsertClient(db, { clientName, clientPhone });
 
+  // Пишем время окончания сразу: бронируем по максимальной длительности услуги,
+  // а мастер потом поставит фактическое, и лишние часы вернутся в свободные окна.
+  const endDatetime = `${dateStr}T${minutesToTime(Math.min(endMin, 23 * 60 + 59))}:00`;
+
   const result = await db
     .prepare(
-      `INSERT INTO bookings (conversation_id, client_id, service_id, employee_id, client_name, client_phone, requested_datetime, status, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', ?) RETURNING id`
+      `INSERT INTO bookings (conversation_id, client_id, service_id, employee_id, client_name, client_phone, requested_datetime, end_datetime, status, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?) RETURNING id`
     )
-    .bind(conversationId || null, clientId, serviceId, employeeId, clientName, clientPhone, requestedDatetime, source)
+    .bind(conversationId || null, clientId, serviceId, employeeId, clientName, clientPhone, requestedDatetime, endDatetime, source)
     .first();
 
   return { ok: true, bookingId: result.id };

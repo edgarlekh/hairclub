@@ -1094,6 +1094,24 @@ function renderVisitsList(bookings) {
   `).join("");
 }
 
+// Прибавляем минуты к "2026-07-23T09:00", не уходя в часовые пояса через Date.
+function addMinutes(datetimeLocal, minutes) {
+  if (!datetimeLocal) return null;
+  const [date, time] = datetimeLocal.split("T");
+  const total = Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5)) + minutes;
+  const capped = Math.min(total, 23 * 60 + 59); // визит не переносим на следующие сутки
+  return `${date}T${String(Math.floor(capped / 60)).padStart(2, "0")}:${String(capped % 60).padStart(2, "0")}`;
+}
+
+// Фактическая длительность визита: из времени окончания, иначе из услуги, иначе час.
+function bookingDuration(booking) {
+  const start = minutesOfDay(booking.requested_datetime);
+  const end = minutesOfDay(booking.end_datetime);
+  if (start != null && end != null && end > start) return end - start;
+  const svc = allServicesCache.find(s => s.id === booking.service_id);
+  return (svc && (svc.duration_max || svc.duration_min)) || 60;
+}
+
 function openVisitForm(booking = {}) {
   const isEdit = !!booking.id;
   const employeeOptions = allEmployeesCache.map(e => `<option value="${e.id}" ${booking.employee_id === e.id ? "selected" : ""}>${e.name}</option>`).join("");
@@ -1110,6 +1128,15 @@ function openVisitForm(booking = {}) {
       <div><label>Дата и время</label><input id="v_datetime" type="datetime-local" value="${(booking.requested_datetime || "").slice(0, 16)}"></div>
       <div><label>Сумма (PLN)</label><input id="v_amount" type="number" value="${booking.charged_amount || ""}"></div>
     </div>
+    <label>Сколько займёт, минут</label>
+    <select id="v_duration">
+      ${[60, 90, 120, 150, 180, 210, 240, 270, 300, 360].map(m => `
+        <option value="${m}" ${bookingDuration(booking) === m ? "selected" : ""}>${m} мин · ${Math.floor(m / 60)} ч ${m % 60 ? m % 60 + " мин" : ""}</option>
+      `).join("")}
+    </select>
+    <p style="font-size:11px;color:var(--muted);margin:-6px 0 12px">
+      Запись бронируется с запасом. Поставь фактическое время — освободившиеся часы сразу вернутся в свободные окна.
+    </p>
     <label>Статус</label>
     <select id="v_status">
       <option value="completed" ${booking.status === "completed" ? "selected" : ""}>Завершена</option>
@@ -1128,12 +1155,16 @@ function openVisitForm(booking = {}) {
 }
 
 async function saveVisit(id) {
+  const start = document.getElementById("v_datetime").value;
+  const minutes = parseInt(document.getElementById("v_duration").value) || 60;
+
   const payload = {
     client_id: currentClient.id,
     employee_id: parseInt(document.getElementById("v_employee").value) || null,
     service_id: parseInt(document.getElementById("v_service").value) || null,
     custom_service_label: document.getElementById("v_label").value || null,
-    requested_datetime: document.getElementById("v_datetime").value,
+    requested_datetime: start,
+    end_datetime: addMinutes(start, minutes),
     charged_amount: parseFloat(document.getElementById("v_amount").value) || null,
     status: document.getElementById("v_status").value,
     comment: document.getElementById("v_comment").value,
