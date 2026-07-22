@@ -4,6 +4,7 @@
  */
 
 import { DAY_NAMES } from "./booking-slots.js";
+import { presentPhotos, toStoredPhoto, isStoredPhoto, storedKey } from "./photo-links.js";
 
 function j(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
@@ -18,6 +19,17 @@ function j(obj, status = 200) {
 }
 
 const SALON_ID = 1; // пока один салон; при мультитенантности — брать из аутентификации
+
+// HEIC — формат съёмки айфонов, без него половина загрузок с телефона отвалится
+const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif",
+];
+const MAX_PHOTO_BYTES = 15 * 1024 * 1024;
+
+function extForType(type) {
+  return { "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+           "image/heic": ".heic", "image/heif": ".heif" }[type] || ".jpg";
+}
 
 export async function handleApiRequest(request, env, path) {
   const db = env.DB;
@@ -462,8 +474,9 @@ export async function handleApiRequest(request, env, path) {
         .prepare(`SELECT id, booking_id, photo_url, caption FROM visit_photos WHERE booking_id IN (${placeholders})`)
         .bind(...ids)
         .all();
+      const signed = await presentPhotos(photos, request, env);
       const byBooking = {};
-      for (const p of photos) (byBooking[p.booking_id] ??= []).push(p);
+      for (const p of signed) (byBooking[p.booking_id] ??= []).push(p);
       for (const b of results) b.photos = byBooking[b.id] || [];
     } else {
       for (const b of results) b.photos = [];
@@ -537,18 +550,58 @@ export async function handleApiRequest(request, env, path) {
       .prepare("SELECT * FROM visit_photos WHERE booking_id = ?")
       .bind(visitPhotosMatch[1])
       .all();
-    return j(results);
+    return j(await presentPhotos(results, request, env));
   }
   if (visitPhotosMatch && method === "POST") {
+    const bookingId = visitPhotosMatch[1];
+    const contentType = request.headers.get("content-type") || "";
+
+    // Файл с телефона или компьютера кладём в R2, в базе храним только ссылку
+    if (contentType.includes("multipart/form-data")) {
+      if (!env.PHOTOS) return j({ error: "Хранилище фото не подключено" }, 500);
+
+      const form = await request.formData();
+      const file = form.get("file");
+      if (!file || typeof file === "string") return j({ error: "Файл не получен" }, 400);
+      if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+        return j({ error: "Можно загружать только фото: JPEG, PNG, WebP или HEIC" }, 400);
+      }
+      if (file.size > MAX_PHOTO_BYTES) {
+        return j({ error: `Фото больше ${Math.round(MAX_PHOTO_BYTES / 1024 / 1024)} МБ — сожми или выбери другое` }, 400);
+      }
+
+      const ext = (file.name || "").match(/\.[a-z0-9]+$/i)?.[0] || extForType(file.type);
+      const key = `visits/${bookingId}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+      await env.PHOTOS.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+
+      const result = await db
+        .prepare("INSERT INTO visit_photos (booking_id, photo_url, caption) VALUES (?, ?, ?) RETURNING id")
+        .bind(bookingId, toStoredPhoto(key), form.get("caption") || "")
+        .first();
+      const [saved] = await presentPhotos(
+        [{ id: result.id, photo_url: toStoredPhoto(key), caption: form.get("caption") || "" }], request, env
+      );
+      return j(saved);
+    }
+
+    // Старый путь: фото по внешней ссылке (так пришли снимки из Bumpix)
     const b = await request.json();
     const result = await db
       .prepare("INSERT INTO visit_photos (booking_id, photo_url, caption) VALUES (?, ?, ?) RETURNING id")
-      .bind(visitPhotosMatch[1], b.photo_url, b.caption || "")
+      .bind(bookingId, b.photo_url, b.caption || "")
       .first();
     return j({ id: result.id });
   }
   const visitPhotoDeleteMatch = path.match(/^\/api\/bookings\/\d+\/photos\/(\d+)$/);
   if (visitPhotoDeleteMatch && method === "DELETE") {
+    // Файл из хранилища тоже убираем, иначе он останется занимать место навсегда
+    const row = await db
+      .prepare("SELECT photo_url FROM visit_photos WHERE id=?")
+      .bind(visitPhotoDeleteMatch[1])
+      .first();
+    if (row && isStoredPhoto(row.photo_url) && env.PHOTOS) {
+      await env.PHOTOS.delete(storedKey(row.photo_url));
+    }
     await db.prepare("DELETE FROM visit_photos WHERE id=?").bind(visitPhotoDeleteMatch[1]).run();
     return j({ ok: true });
   }

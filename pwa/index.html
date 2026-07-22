@@ -1221,13 +1221,79 @@ async function openVisitPhotos(booking) {
   openModal(`
     <h2>Фото визита</h2>
     <div id="photos_list">${renderVisitPhotosList(photos, booking.id)}</div>
-    <label>Ссылка на фото (URL)</label>
-    <input id="vph_url" placeholder="https://...">
-    <label>Подпись</label>
+
+    <label>Подпись к следующим фото</label>
     <input id="vph_caption" placeholder="например: после процедуры">
-    <button class="btn-primary" onclick='addVisitPhoto(${booking.id})'>Добавить фото</button>
-    <button class="btn-secondary" onclick='openVisitForm(${JSON.stringify(booking)})'>← Назад к записи</button>
+
+    <input type="file" id="vph_file" accept="image/*" multiple hidden
+           onchange="uploadVisitPhotos(${booking.id}, this.files)">
+    <button class="btn-primary" onclick="document.getElementById('vph_file').click()">
+      Добавить фото
+    </button>
+    <p id="vph_status" style="font-size:12px;color:var(--muted);margin:6px 0 0"></p>
+
+    <details style="margin-top:10px">
+      <summary style="font-size:12px;color:var(--muted);cursor:pointer">Добавить по ссылке</summary>
+      <label>Ссылка на фото (URL)</label>
+      <input id="vph_url" placeholder="https://...">
+      <button class="btn-secondary" onclick='addVisitPhoto(${booking.id})'>Добавить по ссылке</button>
+    </details>
+
+    <button class="btn-secondary" onclick='openVisitForm(${attrJson(booking)})'>← Назад к записи</button>
   `);
+}
+
+// Снимок с телефона весит 3–5 МБ, а в панели столько не нужно: ужимаем до 1600px
+// и пережимаем в JPEG. Место в хранилище и трафик на мобильном экономятся раз в десять.
+const PHOTO_MAX_SIDE = 1600;
+const PHOTO_QUALITY = 0.82;
+
+async function compressImage(file) {
+  if (!file.type.startsWith("image/")) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+
+    const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", PHOTO_QUALITY));
+    // Уже сжатое маленькое фото пережимать смысла нет — станет только хуже
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return file; // формат, который браузер не умеет читать (бывает с HEIC) — шлём как есть
+  }
+}
+
+async function uploadVisitPhotos(bookingId, files) {
+  if (!files || !files.length) return;
+  const caption = document.getElementById("vph_caption").value.trim();
+  const status = document.getElementById("vph_status");
+  let saved = 0;
+
+  for (const [i, original] of [...files].entries()) {
+    status.textContent = `Загружаю ${i + 1} из ${files.length}...`;
+    const file = await compressImage(original);
+
+    const form = new FormData();
+    form.append("file", file);
+    form.append("caption", caption);
+    // FormData сам ставит content-type с разделителем — свой заголовок тут ставить нельзя
+    const res = await fetch(`${API_BASE}/bookings/${bookingId}/photos`, {
+      method: "POST", headers: { "X-Admin-Token": ADMIN_TOKEN }, body: form,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) { status.textContent = data.error || "Не удалось загрузить фото"; return; }
+    saved++;
+  }
+
+  const photos = await api(`/bookings/${bookingId}/photos`);
+  document.getElementById("photos_list").innerHTML = renderVisitPhotosList(photos, bookingId);
+  document.getElementById("vph_file").value = "";
+  status.textContent = saved ? `Загружено: ${saved}` : "";
 }
 
 function renderVisitPhotosList(photos, bookingId) {

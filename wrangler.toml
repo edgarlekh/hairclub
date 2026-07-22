@@ -7,6 +7,12 @@ binding = "DB"
 database_name = "salon-agent-db"
 database_id = "74b3f778-f4f8-4d80-b370-d96e07e4bd07"
 
+# Хранилище фотографий визитов. Bucket не публичный: файлы отдаёт воркер
+# под админ-токеном, чтобы снимки клиентов не лежали в открытом доступе.
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "hairclub-photos"
+
 # ANTHROPIC_API_KEY добавляется ОТДЕЛЬНО через:
 #   npx wrangler secret put ANTHROPIC_API_KEY
 # Никогда не пиши секретный ключ прямо в этот файл!

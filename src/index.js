@@ -10,6 +10,7 @@
 import { getAgentResponse } from "./agent.js";
 import { handleApiRequest } from "./api-routes.js";
 import { handlePublicRequest } from "./public-routes.js";
+import { isSignatureValid } from "./photo-links.js";
 
 async function getOrCreateConversation(db, salonId, channelId) {
   let conv = await db
@@ -42,6 +43,28 @@ export default {
     // Публичные роуты — сайт бронирования для клиентов, без токена
     if (url.pathname.startsWith("/public/")) {
       return handlePublicRequest(request, env, url.pathname);
+    }
+
+    // Сами файлы фотографий: <img> не может прислать заголовок с токеном,
+    // поэтому пускаем по подписанной ссылке с ограниченным сроком.
+    const photoMatch = url.pathname.match(/^\/api\/photos\/(.+)$/);
+    if (photoMatch && request.method === "GET") {
+      const key = decodeURIComponent(photoMatch[1]);
+      const signed = await isSignatureValid(
+        key, url.searchParams.get("exp"), url.searchParams.get("sig"), env
+      );
+      const byToken = env.ADMIN_TOKEN && request.headers.get("X-Admin-Token") === env.ADMIN_TOKEN;
+      if (!signed && !byToken) return json({ error: "Unauthorized" }, 401);
+      if (!env.PHOTOS) return json({ error: "Хранилище фото не подключено" }, 500);
+
+      const object = await env.PHOTOS.get(key);
+      if (!object) return json({ error: "Фото не найдено" }, 404);
+
+      const headers = new Headers(corsHeaders());
+      object.writeHttpMetadata(headers);
+      headers.set("etag", object.httpEtag);
+      headers.set("cache-control", "private, max-age=86400");
+      return new Response(object.body, { headers });
     }
 
     // Роуты для PWA-панели владельца — защищены токеном доступа
