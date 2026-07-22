@@ -44,6 +44,9 @@
   .card h3 { margin:0 0 4px; font-family: var(--font-heading); font-weight: 600; font-size: 17px; }
   .card p { margin:0; font-size:13px; color:var(--muted); }
   .price { color: var(--gold-mid); font-weight:600; }
+  .group-head { font-family: var(--font-heading); font-size:15px; font-weight:600; color: var(--gold-mid);
+                margin: 20px 0 8px; }
+  .group-head:first-child { margin-top: 0; }
   .slots { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
   .slot { padding:10px 14px; border:1px solid var(--border); border-radius:10px; cursor:pointer; font-size:14px; background: white; transition: background 0.15s, color 0.15s, border-color 0.15s; }
   .slot:hover, .slot.selected { background: var(--gradient); color:white; border-color:transparent; }
@@ -151,15 +154,37 @@ async function api(path) {
   return res.json();
 }
 
+// Цена и время приходят диапазоном. Когда «от» и «до» совпадают, показываем одно число,
+// иначе получается «200–200 PLN».
+function fmtRange(min, max, unit) {
+  if (min == null && max == null) return "";
+  if (min == null || max == null || Number(min) === Number(max)) return `${min ?? max} ${unit}`;
+  return `${min}–${max} ${unit}`;
+}
+
 async function loadServices() {
   const services = await api("/services");
   const el = document.getElementById("services-list");
   if (!services.length) { el.innerHTML = `<div class="empty">Услуг пока нет</div>`; return; }
-  el.innerHTML = services.map(s => `
-    <div class="card" onclick='selectService(${JSON.stringify(s)})'>
-      <h3>${s.name}</h3>
-      <p><span class="price">${s.price_min}–${s.price_max} ${s.currency}</span> · ${s.duration_minutes} мин</p>
-    </div>
+
+  // Раскладываем по категориям — иначе 83 услуги одним списком не выбрать
+  const groups = new Map();
+  for (const s of services) {
+    const key = s.category_name || "Прочее";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(s);
+  }
+
+  el.innerHTML = [...groups.entries()].map(([cat, list]) => `
+    <h3 class="group-head">${cat}</h3>
+    ${list.map(s => {
+      const time = fmtRange(s.duration_min, s.duration_max, "мин");
+      return `
+      <div class="card" onclick='selectService(${JSON.stringify(s).replace(/'/g, "&#39;")})'>
+        <h3>${s.name}</h3>
+        <p><span class="price">${fmtRange(s.price_min, s.price_max, s.currency || "PLN")}</span>${time ? " · " + time : ""}</p>
+      </div>`;
+    }).join("")}
   `).join("");
 }
 
