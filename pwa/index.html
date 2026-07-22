@@ -124,6 +124,14 @@
   .photo-row .photo-info { flex: 1; font-size: 12px; color: var(--muted); }
   .photo-row .photo-del { background: none; border: none; color: var(--terracotta); font-size: 18px; cursor: pointer; padding: 4px 8px; }
   .link-btn { background: none; border: none; color: var(--gold-mid); font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; margin-top: 10px; }
+  .sched { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+  .sched-row { display: flex; align-items: center; gap: 8px; }
+  .sched-row.off { opacity: .45; }
+  .sched-day { display: flex; align-items: center; gap: 6px; width: 62px; flex-shrink: 0; margin: 0; }
+  .sched-day span { font-size: 13px; font-weight: 600; }
+  .sched-row select { flex: 1; min-width: 0; margin: 0; }
+  .sched-dash { color: var(--muted); }
+
   .cat-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px;
              font-size: 13px; color: var(--muted); margin: 0 0 10px; }
   .cat-bar .link-btn { margin-top: 0; }
@@ -446,28 +454,117 @@ async function renderEmployees() {
     content.innerHTML = `<div class="empty">Пока нет мастеров. Нажми "+", чтобы добавить.</div>`;
     return;
   }
-  content.innerHTML = employees.map(e => `
-    <div class="card" onclick='openEmployeeForm(${JSON.stringify(e)})'>
+  const schedules = await Promise.all(employees.map(e => api(`/employees/${e.id}/schedule`)));
+
+  content.innerHTML = employees.map((e, i) => `
+    <div class="card" onclick='openEmployeeForm(${attrJson(e)})'>
       <h3>${e.name}</h3>
-      <p>${e.working_schedule || "график не указан"}</p>
+      <p>${describeSchedule(schedules[i])}</p>
       <div class="chips">
         ${e.service_ids.length
-          ? e.service_ids.map(id => servicesById[id] ? `<span class="chip">${servicesById[id].name}</span>` : "").join("")
+          ? e.service_ids.slice(0, 6).map(id => servicesById[id] ? `<span class="chip">${servicesById[id].name}</span>` : "").join("") +
+            (e.service_ids.length > 6 ? `<span class="chip">+${e.service_ids.length - 6}</span>` : "")
           : `<span class="chip">услуги не назначены</span>`}
       </div>
     </div>
   `).join("");
 }
 
-function openEmployeeForm(employee = {}) {
+// Короткая запись графика: подряд идущие дни с одинаковым временем сливаем в «Пн–Сб 09:00–18:00»
+function describeSchedule(schedule) {
+  if (!schedule || !schedule.length) return "график не указан";
+  const byDay = {};
+  schedule.forEach(d => (byDay[d.weekday] = d));
+  const parts = [];
+  let run = null;
+  for (const { n, short } of WEEKDAYS) {
+    const d = byDay[n];
+    const key = d ? `${d.start_minutes}-${d.end_minutes}` : null;
+    if (run && run.key === key) {
+      run.last = short;
+    } else {
+      if (run && run.key) parts.push(run);
+      run = key ? { key, first: short, last: short, d } : null;
+    }
+  }
+  if (run && run.key) parts.push(run);
+  return parts
+    .map(p => `${p.first === p.last ? p.first : p.first + "–" + p.last} ${minutesToTime(p.d.start_minutes)}–${minutesToTime(p.d.end_minutes)}`)
+    .join(", ");
+}
+
+// Дни недели в порядке Пн→Вс; number — как Date.getDay()
+const WEEKDAYS = [
+  { n: 1, short: "Пн" }, { n: 2, short: "Вт" }, { n: 3, short: "Ср" }, { n: 4, short: "Чт" },
+  { n: 5, short: "Пт" }, { n: 6, short: "Сб" }, { n: 0, short: "Вс" },
+];
+
+function minutesToTime(m) {
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+function timeToMinutes(t) {
+  const [h, m] = String(t).split(":").map(Number);
+  return h * 60 + (m || 0);
+}
+// Варианты времени с шагом 30 минут — выбор из списка, чтобы не было разнобоя при ручном вводе
+function timeOptions(selectedMinutes) {
+  let out = "";
+  for (let m = 0; m <= 24 * 60 - 30; m += 30) {
+    out += `<option value="${m}" ${m === selectedMinutes ? "selected" : ""}>${minutesToTime(m)}</option>`;
+  }
+  return out;
+}
+
+function renderScheduleRows(schedule) {
+  const byDay = {};
+  (schedule || []).forEach(d => (byDay[d.weekday] = d));
+  return WEEKDAYS.map(({ n, short }) => {
+    const day = byDay[n];
+    const on = !!day;
+    return `
+      <div class="sched-row ${on ? "" : "off"}" id="sched_row_${n}">
+        <label class="sched-day">
+          <input type="checkbox" id="sched_on_${n}" ${on ? "checked" : ""} onchange="toggleScheduleDay(${n})">
+          <span>${short}</span>
+        </label>
+        <select id="sched_from_${n}" ${on ? "" : "disabled"}>${timeOptions(day ? day.start_minutes : 540)}</select>
+        <span class="sched-dash">–</span>
+        <select id="sched_to_${n}" ${on ? "" : "disabled"}>${timeOptions(day ? day.end_minutes : 1080)}</select>
+      </div>`;
+  }).join("");
+}
+
+function toggleScheduleDay(n) {
+  const on = document.getElementById(`sched_on_${n}`).checked;
+  document.getElementById(`sched_from_${n}`).disabled = !on;
+  document.getElementById(`sched_to_${n}`).disabled = !on;
+  document.getElementById(`sched_row_${n}`).classList.toggle("off", !on);
+}
+
+function collectSchedule() {
+  const days = [];
+  for (const { n, short } of WEEKDAYS) {
+    if (!document.getElementById(`sched_on_${n}`).checked) continue;
+    const start = Number(document.getElementById(`sched_from_${n}`).value);
+    const end = Number(document.getElementById(`sched_to_${n}`).value);
+    if (start >= end) return { error: `${short}: начало рабочего дня должно быть раньше конца` };
+    days.push({ weekday: n, start_minutes: start, end_minutes: end });
+  }
+  return { days };
+}
+
+async function openEmployeeForm(employee = {}) {
   const isEdit = !!employee.id;
   const selectedIds = new Set(employee.service_ids || []);
+  const schedule = isEdit ? await api(`/employees/${employee.id}/schedule`) : [];
   openModal(`
     <h2>${isEdit ? "Редактировать мастера" : "Новый мастер"}</h2>
     <label>Имя</label>
     <input id="e_name" value="${employee.name || ""}">
     <label>График работы</label>
-    <input id="e_schedule" placeholder="Пн-Сб 9:00-18:00" value="${employee.working_schedule || ""}">
+    <div class="sched">${renderScheduleRows(schedule)}</div>
+    <p class="hint">Снятая галочка — выходной. Записаться вне этих часов будет нельзя.</p>
+    ${isEdit ? `<button class="link-btn" onclick='openTimeOff(${attrJson(employee)})'>Отпуска и отгулы →</button>` : ""}
     <label>Какие услуги делает</label>
     <div>
       ${allServicesCache.length
@@ -485,19 +582,82 @@ function openEmployeeForm(employee = {}) {
 }
 
 async function saveEmployee(id) {
+  const name = document.getElementById("e_name").value.trim();
+  if (!name) { alert("Укажи имя мастера"); return; }
+
+  const sched = collectSchedule();
+  if (sched.error) { alert(sched.error); return; }
+
   const service_ids = Array.from(document.querySelectorAll(".e_service_cb:checked")).map(cb => parseInt(cb.value));
-  const payload = {
-    name: document.getElementById("e_name").value,
-    working_schedule: document.getElementById("e_schedule").value,
-    service_ids,
-  };
+  const payload = { name, service_ids };
+
+  let employeeId = id;
   if (id) {
     await api(`/employees/${id}`, { method: "PUT", body: JSON.stringify(payload) });
   } else {
-    await api("/employees", { method: "POST", body: JSON.stringify(payload) });
+    const created = await api("/employees", { method: "POST", body: JSON.stringify(payload) });
+    employeeId = created.id;
   }
+  await api(`/employees/${employeeId}/schedule`, { method: "PUT", body: JSON.stringify({ days: sched.days }) });
+
   closeModal();
   renderEmployees();
+}
+
+// ---------- ОТПУСКА И ОТГУЛЫ ----------
+async function openTimeOff(employee) {
+  const items = await api(`/employees/${employee.id}/time-off`);
+  openModal(`
+    <h2>Отпуска и отгулы: ${employee.name}</h2>
+    <div id="timeoff_list">${
+      items.length
+        ? items.map(t => `
+          <div class="photo-row">
+            <div class="photo-info" style="font-size:13px;color:var(--text)">
+              ${t.date}${t.start_minutes == null ? " · весь день" : ` · ${minutesToTime(t.start_minutes)}–${minutesToTime(t.end_minutes)}`}
+              ${t.reason ? `<br><span style="color:var(--muted)">${t.reason}</span>` : ""}
+            </div>
+            <button class="photo-del" onclick='deleteTimeOff(${attrJson(employee)}, ${t.id})' title="Удалить">×</button>
+          </div>`).join("")
+        : `<p class="hint">Ничего не запланировано.</p>`
+    }</div>
+    <label>Дата</label>
+    <input id="to_date" type="date">
+    <label><input type="checkbox" id="to_allday" checked onchange="toggleAllDay()"> Весь день</label>
+    <div class="row" id="to_times" style="display:none">
+      <div><label>С</label><select id="to_from">${timeOptions(540)}</select></div>
+      <div><label>До</label><select id="to_to">${timeOptions(1080)}</select></div>
+    </div>
+    <label>Причина (необязательно)</label>
+    <input id="to_reason" placeholder="отпуск, обучение, обед">
+    <button class="btn-primary" onclick='addTimeOff(${attrJson(employee)})'>Добавить</button>
+    <button class="btn-secondary" onclick='openEmployeeForm(${attrJson(employee)})'>← Назад к мастеру</button>
+  `);
+}
+
+function toggleAllDay() {
+  document.getElementById("to_times").style.display =
+    document.getElementById("to_allday").checked ? "none" : "flex";
+}
+
+async function addTimeOff(employee) {
+  const date = document.getElementById("to_date").value;
+  if (!date) { alert("Выбери дату"); return; }
+  const allDay = document.getElementById("to_allday").checked;
+  const body = {
+    date,
+    start_minutes: allDay ? null : Number(document.getElementById("to_from").value),
+    end_minutes: allDay ? null : Number(document.getElementById("to_to").value),
+    reason: document.getElementById("to_reason").value.trim(),
+  };
+  if (!allDay && body.start_minutes >= body.end_minutes) { alert("Начало должно быть раньше конца"); return; }
+  await api(`/employees/${employee.id}/time-off`, { method: "POST", body: JSON.stringify(body) });
+  openTimeOff(employee);
+}
+
+async function deleteTimeOff(employee, id) {
+  await api(`/employees/${employee.id}/time-off/${id}`, { method: "DELETE" });
+  openTimeOff(employee);
 }
 
 async function deleteEmployee(id) {

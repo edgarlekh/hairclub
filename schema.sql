@@ -46,8 +46,28 @@ CREATE TABLE IF NOT EXISTS employees (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     salon_id INTEGER NOT NULL,
     name TEXT NOT NULL,
-    working_schedule TEXT,
+    working_schedule TEXT,   -- устарело, график лежит в employee_schedule
     photo_url TEXT
+);
+
+-- Постоянный график: строка на каждый рабочий день, выходной = отсутствие строки.
+-- Время в минутах от полуночи (540 = 09:00).
+CREATE TABLE IF NOT EXISTS employee_schedule (
+    employee_id INTEGER NOT NULL,
+    weekday INTEGER NOT NULL,          -- 0=Вс, 1=Пн ... 6=Сб (как Date.getDay)
+    start_minutes INTEGER NOT NULL,
+    end_minutes INTEGER NOT NULL,
+    PRIMARY KEY (employee_id, weekday)
+);
+
+-- Разовые исключения: отпуск, отгул, обед. Пустое время = весь день.
+CREATE TABLE IF NOT EXISTS employee_time_off (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    employee_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    start_minutes INTEGER,
+    end_minutes INTEGER,
+    reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS employee_services (

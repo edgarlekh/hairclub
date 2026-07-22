@@ -3,6 +3,8 @@
  * Всё под префиксом /api/... — простые CRUD-операции поверх D1.
  */
 
+import { DAY_NAMES } from "./booking-slots.js";
+
 function j(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
     status,
@@ -205,7 +207,67 @@ export async function handleApiRequest(request, env, path) {
   if (employeeMatch && method === "DELETE") {
     const id = employeeMatch[1];
     await db.prepare("DELETE FROM employee_services WHERE employee_id=?").bind(id).run();
+    await db.prepare("DELETE FROM employee_schedule WHERE employee_id=?").bind(id).run();
+    await db.prepare("DELETE FROM employee_time_off WHERE employee_id=?").bind(id).run();
     await db.prepare("DELETE FROM employees WHERE id=?").bind(id).run();
+    return j({ ok: true });
+  }
+
+  // --- График работы мастера ---
+  // Строка на каждый рабочий день недели; выходной = отсутствие строки.
+  const scheduleMatch = path.match(/^\/api\/employees\/(\d+)\/schedule$/);
+  if (scheduleMatch && method === "GET") {
+    const { results } = await db
+      .prepare("SELECT weekday, start_minutes, end_minutes FROM employee_schedule WHERE employee_id = ? ORDER BY weekday")
+      .bind(scheduleMatch[1])
+      .all();
+    return j(results);
+  }
+  if (scheduleMatch && method === "PUT") {
+    const id = scheduleMatch[1];
+    const b = await request.json();
+    const days = Array.isArray(b.days) ? b.days : [];
+    for (const d of days) {
+      if (d.start_minutes >= d.end_minutes) {
+        return j({ error: `Начало рабочего дня должно быть раньше конца (${DAY_NAMES[d.weekday] || d.weekday})` }, 400);
+      }
+    }
+    await db.prepare("DELETE FROM employee_schedule WHERE employee_id=?").bind(id).run();
+    for (const d of days) {
+      await db
+        .prepare("INSERT INTO employee_schedule (employee_id, weekday, start_minutes, end_minutes) VALUES (?, ?, ?, ?)")
+        .bind(id, d.weekday, d.start_minutes, d.end_minutes)
+        .run();
+    }
+    return j({ ok: true });
+  }
+
+  // --- Отгулы, отпуска, перерывы ---
+  const timeOffMatch = path.match(/^\/api\/employees\/(\d+)\/time-off$/);
+  if (timeOffMatch && method === "GET") {
+    const { results } = await db
+      .prepare("SELECT * FROM employee_time_off WHERE employee_id = ? AND date >= date('now','-1 day') ORDER BY date")
+      .bind(timeOffMatch[1])
+      .all();
+    return j(results);
+  }
+  if (timeOffMatch && method === "POST") {
+    const b = await request.json();
+    if (!b.date) return j({ error: "Нужна дата" }, 400);
+    const result = await db
+      .prepare(
+        "INSERT INTO employee_time_off (employee_id, date, start_minutes, end_minutes, reason) VALUES (?, ?, ?, ?, ?) RETURNING id"
+      )
+      .bind(timeOffMatch[1], b.date, b.start_minutes ?? null, b.end_minutes ?? null, b.reason || "")
+      .first();
+    return j({ id: result.id });
+  }
+  const timeOffItemMatch = path.match(/^\/api\/employees\/(\d+)\/time-off\/(\d+)$/);
+  if (timeOffItemMatch && method === "DELETE") {
+    await db
+      .prepare("DELETE FROM employee_time_off WHERE id=? AND employee_id=?")
+      .bind(timeOffItemMatch[2], timeOffItemMatch[1])
+      .run();
     return j({ ok: true });
   }
 
