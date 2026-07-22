@@ -1581,11 +1581,72 @@ async function boot() {
   else showLogin("Сессия истекла. Войдите снова.");
 }
 
-boot();
+// Если панель почему-то не поднялась (застрявший кэш, оборванная загрузка),
+// владелец не должен смотреть в пустой экран, не понимая, что делать.
+function showRecovery(details) {
+  const nav = document.querySelector("nav");
+  if (nav) nav.style.display = "none";
+  const fab = document.getElementById("fab");
+  if (fab) fab.style.display = "none";
+  const box = document.getElementById("content");
+  if (!box) return;
+  box.innerHTML = `
+    <div class="card" style="max-width:380px;margin:40px auto;text-align:center">
+      <h3>Панель не загрузилась</h3>
+      <p>Обычно помогает обновление: сбросим сохранённую копию и перезагрузим страницу.</p>
+      <button class="btn-primary" onclick="hardReload()">Обновить панель</button>
+      <p style="font-size:11px;color:var(--muted);margin-top:10px">${details || ""}</p>
+    </div>`;
+}
+
+async function hardReload() {
+  try {
+    for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+    for (const k of await caches.keys()) await caches.delete(k);
+  } catch {}
+  location.reload();
+}
+
+boot()
+  .then(() => { window.__appBooted = true; })
+  .catch((e) => showRecovery(e && e.message));
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
+</script>
+
+<!--
+  Страховка отдельным тегом: если основной скрипт вообще не выполнился
+  (застрявший кэш, оборванная загрузка), внутри него ничего не сработает —
+  включая обработчики ошибок. Этот блок независим и покажет, что делать,
+  вместо пустого экрана. Такое уже случалось после обновления панели.
+-->
+<script>
+setTimeout(function () {
+  if (window.__appBooted) return;
+  if (document.getElementById("login_token")) return;   // ждём ввода токена — это норма
+  var box = document.getElementById("content");
+  if (!box || box.children.length) return;              // что-то отрисовалось, значит живо
+
+  var nav = document.querySelector("nav");
+  if (nav) nav.style.display = "none";
+  box.innerHTML =
+    '<div class="card" style="max-width:380px;margin:40px auto;text-align:center">' +
+    '<h3>Панель не загрузилась</h3>' +
+    '<p>Похоже, браузер держит устаревшую копию. Сбросим её и перезагрузим.</p>' +
+    '<button class="btn-primary" id="recover_btn">Обновить панель</button></div>';
+
+  document.getElementById("recover_btn").onclick = function () {
+    var done = function () { location.reload(); };
+    if (!("serviceWorker" in navigator)) return done();
+    navigator.serviceWorker.getRegistrations()
+      .then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); })
+      .then(function () { return caches.keys(); })
+      .then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); })
+      .then(done, done);
+  };
+}, 4000);
 </script>
 </body>
 </html>
