@@ -160,6 +160,63 @@
             display: flex; justify-content: space-between; gap: 12px; align-items: center;
             background: linear-gradient(transparent, rgba(0,0,0,.65)); color: #fff; font-size: 13px; pointer-events: none; }
   #lb_counter { opacity: .75; white-space: nowrap; }
+
+  /* ---------- КАЛЕНДАРЬ ЗАПИСЕЙ ---------- */
+  .cal-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .cal-bar .spacer { flex: 1; }
+  .cal-nav { background: white; border: 1px solid var(--border); border-radius: 10px; width: 34px; height: 34px;
+             font-size: 17px; cursor: pointer; color: var(--gold-mid); flex: none; }
+  .cal-nav:hover { border-color: var(--gold-2); }
+  .cal-today { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 0 12px; height: 34px;
+               cursor: pointer; font-size: 13px; font-weight: 600; color: var(--gold-mid); }
+  #cal_date { border: 1px solid var(--border); border-radius: 10px; height: 34px; padding: 0 8px; font-size: 13px;
+              font-family: inherit; background: white; margin: 0; }
+  .cal-title { font-family: var(--font-heading); font-weight: 600; font-size: 15px; }
+  .cal-title span { color: var(--muted); font-weight: 400; font-size: 13px; }
+
+  .cal-stats { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .cal-stat { background: white; border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; flex: 1; min-width: 90px; }
+  .cal-stat b { display: block; font-size: 19px; font-family: var(--font-heading); color: var(--gold-1); }
+  .cal-stat span { font-size: 11px; color: var(--muted); }
+
+  /* Сетка: слева колонка времени, дальше по колонке на мастера */
+  .cal-wrap { background: white; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .cal-scroll { overflow-x: auto; overflow-y: hidden; }
+  .cal-grid { display: grid; position: relative; min-width: max-content; }
+  .cal-head { position: sticky; top: 0; z-index: 3; background: var(--bg-soft); border-bottom: 1px solid var(--border);
+              padding: 8px 6px; text-align: center; font-size: 12px; font-weight: 600; }
+  .cal-head small { display: block; font-weight: 400; color: var(--muted); font-size: 10px; }
+  .cal-head.corner { position: sticky; left: 0; z-index: 4; }
+  .cal-time { position: sticky; left: 0; z-index: 2; background: white; border-right: 1px solid var(--border);
+              font-size: 10px; color: var(--muted); text-align: right; padding-right: 6px; }
+  .cal-col { position: relative; border-right: 1px solid var(--border); }
+  .cal-col:last-child { border-right: none; }
+  .cal-hour { border-bottom: 1px solid var(--border); }
+  .cal-half { border-bottom: 1px dashed rgba(0,0,0,.05); }
+  .cal-off { background: repeating-linear-gradient(45deg, rgba(0,0,0,.03) 0 6px, transparent 6px 12px); }
+
+  .cal-ev { position: absolute; left: 3px; right: 3px; border-radius: 8px; padding: 4px 6px; overflow: hidden;
+            font-size: 11px; line-height: 1.25; cursor: pointer; color: #fff; z-index: 1;
+            background: var(--gradient); box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+  .cal-ev:hover { filter: brightness(1.06); }
+  .cal-ev b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cal-ev i { font-style: normal; opacity: .85; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cal-ev.done { background: #8d9a8f; }
+  .cal-ev.cancelled { background: #b9b3ad; text-decoration: line-through; }
+  .cal-ev.off { background: rgba(90,80,70,.5); font-size: 10px; }
+  .cal-now { position: absolute; left: 0; right: 0; height: 2px; background: var(--terracotta); z-index: 2; pointer-events: none; }
+  .cal-now::before { content: ""; position: absolute; left: -3px; top: -3px; width: 8px; height: 8px;
+                     border-radius: 50%; background: var(--terracotta); }
+
+  /* На телефоне колонки не помещаются — показываем одного мастера */
+  .cal-picker { display: none; gap: 6px; margin-bottom: 10px; overflow-x: auto; padding-bottom: 2px; }
+  .cal-picker button { flex: none; border: 1px solid var(--border); background: white; border-radius: 999px;
+                       padding: 7px 13px; font-size: 13px; font-family: inherit; cursor: pointer; }
+  .cal-picker button.active { background: var(--gradient); color: white; border-color: transparent; }
+  @media (max-width: 640px) {
+    .cal-picker { display: flex; }
+    .cal-stat b { font-size: 17px; }
+  }
 </style>
 </head>
 <body>
@@ -177,7 +234,8 @@
 </header>
 
 <nav id="tabs">
-  <button data-tab="services" class="active">Услуги</button>
+  <button data-tab="calendar" class="active">Записи</button>
+  <button data-tab="services">Услуги</button>
   <button data-tab="employees">Мастера</button>
   <button data-tab="clients">Клиенты</button>
   <button data-tab="rules">Правила</button>
@@ -206,7 +264,7 @@
 const API_BASE = "https://salon-agent.edgar-lekh99.workers.dev/api";
 let ADMIN_TOKEN = localStorage.getItem("hc_admin_token") || ""; // вводится через экран входа, не хранится в коде
 
-let currentTab = "services";
+let currentTab = "calendar";
 
 document.getElementById("tabs").addEventListener("click", (e) => {
   if (e.target.tagName !== "BUTTON") return;
@@ -666,6 +724,208 @@ async function deleteEmployee(id) {
   closeModal();
   renderEmployees();
 }
+
+// ---------- КАЛЕНДАРЬ ЗАПИСЕЙ (главный экран) ----------
+// Колонки — мастера, строки — время. Запись рисуется блоком, высота = длительность.
+const CAL_ROW_H = 44;        // высота одного часа в пикселях
+const CAL_MIN_H = 18;        // минимальная высота блока, чтобы короткая запись читалась
+let calDate = todayStr();
+let calMobileEmployee = null; // на телефоне показываем одного мастера
+
+function todayStr(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function shiftDate(dateStr, days) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return todayStr(d);
+}
+function fmtMinutes(m) {
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+}
+function minutesOfDay(dt) {
+  const m = String(dt || "").match(/[T ](\d{1,2}):(\d{2})/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+async function renderCalendar() {
+  document.getElementById("fab").style.display = "block";
+  document.getElementById("fab").onclick = () => openVisitForm({ requested_datetime: `${calDate}T10:00` });
+
+  const data = await api(`/calendar?date=${calDate}`);
+  const d = new Date(calDate + "T00:00:00");
+  const dayNames = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
+  const isToday = calDate === todayStr();
+
+  // Показываем только тех, кто сегодня работает или у кого есть записи —
+  // иначе в выходной экран забит пустыми колонками.
+  let staff = data.employees.filter(e =>
+    e.start_minutes != null || data.bookings.some(b => b.employee_id === e.id)
+  );
+  if (!staff.length) staff = data.employees;
+
+  const onPhone = window.matchMedia("(max-width: 640px)").matches;
+  if (onPhone) {
+    if (!staff.some(e => e.id === calMobileEmployee)) calMobileEmployee = staff[0] ? staff[0].id : null;
+  }
+  const shown = onPhone && calMobileEmployee ? staff.filter(e => e.id === calMobileEmployee) : staff;
+
+  // Границы сетки: от начала самой ранней смены до конца самой поздней,
+  // но с запасом, если запись выходит за график.
+  let from = 24 * 60, to = 0;
+  for (const e of staff) {
+    if (e.start_minutes != null) { from = Math.min(from, e.start_minutes); to = Math.max(to, e.end_minutes); }
+  }
+  for (const b of data.bookings) {
+    const s = minutesOfDay(b.requested_datetime);
+    if (s == null) continue;
+    const end = minutesOfDay(b.end_datetime) ?? s + (b.duration_minutes || 60);
+    from = Math.min(from, s); to = Math.max(to, end);
+  }
+  if (from >= to) { from = 9 * 60; to = 20 * 60; }
+  from = Math.floor(from / 60) * 60;
+  to = Math.ceil(to / 60) * 60;
+
+  const hours = [];
+  for (let m = from; m < to; m += 60) hours.push(m);
+  const gridH = ((to - from) / 60) * CAL_ROW_H;
+  const posOf = (min) => ((min - from) / 60) * CAL_ROW_H;
+
+  const stats = {
+    всего: data.bookings.filter(b => !["cancelled", "no_show"].includes(b.status)).length,
+    выручка: data.bookings
+      .filter(b => !["cancelled", "no_show"].includes(b.status))
+      .reduce((s, b) => s + (b.charged_amount || 0), 0),
+    отменено: data.bookings.filter(b => ["cancelled", "no_show"].includes(b.status)).length,
+  };
+
+  document.getElementById("content").innerHTML = `
+    <div class="cal-bar">
+      <button class="cal-nav" onclick="calShift(-1)" title="Предыдущий день">‹</button>
+      <input type="date" id="cal_date" value="${calDate}" onchange="calSet(this.value)">
+      <button class="cal-nav" onclick="calShift(1)" title="Следующий день">›</button>
+      <button class="cal-today" onclick="calSet('${todayStr()}')">Сегодня</button>
+      <div class="spacer"></div>
+      <div class="cal-title">${isToday ? "Сегодня" : dayNames[d.getDay()]}
+        <span>${d.getDate()} ${["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"][d.getMonth()]}</span>
+      </div>
+    </div>
+
+    <div class="cal-stats">
+      <div class="cal-stat"><b>${stats.всего}</b><span>записей</span></div>
+      <div class="cal-stat"><b>${stats.выручка ? Math.round(stats.выручка) : "—"}</b><span>PLN за день</span></div>
+      <div class="cal-stat"><b>${staff.filter(e => e.start_minutes != null).length}</b><span>мастеров в смене</span></div>
+      ${stats.отменено ? `<div class="cal-stat"><b>${stats.отменено}</b><span>отменено</span></div>` : ""}
+    </div>
+
+    <div class="cal-picker">
+      ${staff.map(e => `
+        <button class="${e.id === calMobileEmployee ? "active" : ""}" onclick="calPickEmployee(${e.id})">${e.name}</button>
+      `).join("")}
+    </div>
+
+    ${!shown.length ? `<p class="empty">На этот день нет ни смен, ни записей.</p>` : `
+    <div class="cal-wrap"><div class="cal-scroll">
+      <div class="cal-grid" style="grid-template-columns: 46px repeat(${shown.length}, minmax(140px, 1fr));">
+        <div class="cal-head corner"></div>
+        ${shown.map(e => `
+          <div class="cal-head">${e.name}
+            <small>${e.start_minutes != null ? fmtMinutes(e.start_minutes) + "–" + fmtMinutes(e.end_minutes) : "выходной"}</small>
+          </div>`).join("")}
+
+        <div class="cal-time" style="height:${gridH}px">
+          ${hours.map(h => `<div style="height:${CAL_ROW_H}px">${fmtMinutes(h)}</div>`).join("")}
+        </div>
+
+        ${shown.map(e => renderCalColumn(e, data, { from, to, gridH, posOf, isToday })).join("")}
+      </div>
+    </div></div>`}
+  `;
+
+  // Сразу прокручиваем к текущему времени, чтобы не искать его вручную
+  const scroller = document.querySelector(".cal-scroll");
+  if (scroller && isToday) {
+    const now = new Date().getHours() * 60 + new Date().getMinutes();
+    if (now > from && now < to) scroller.scrollTop = Math.max(0, posOf(now) - 80);
+  }
+}
+
+function renderCalColumn(emp, data, { from, to, gridH, posOf, isToday }) {
+  const events = data.bookings.filter(b => b.employee_id === emp.id);
+  const offs = data.timeOff.filter(t => t.employee_id === emp.id);
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+
+  // Нерабочее время внутри сетки затеняем
+  const offBlocks = [];
+  if (emp.start_minutes == null) {
+    offBlocks.push({ start: from, end: to });
+  } else {
+    if (emp.start_minutes > from) offBlocks.push({ start: from, end: emp.start_minutes });
+    if (emp.end_minutes < to) offBlocks.push({ start: emp.end_minutes, end: to });
+  }
+
+  return `
+    <div class="cal-col" style="height:${gridH}px">
+      ${offBlocks.map(o => `<div class="cal-off" style="position:absolute;left:0;right:0;top:${posOf(o.start)}px;height:${posOf(o.end) - posOf(o.start)}px"></div>`).join("")}
+      ${Array.from({ length: (to - from) / 60 }, (_, i) => `
+        <div class="cal-hour" style="position:absolute;left:0;right:0;top:${i * CAL_ROW_H}px;height:${CAL_ROW_H}px">
+          <div class="cal-half" style="height:${CAL_ROW_H / 2}px"></div>
+        </div>`).join("")}
+
+      ${offs.map(t => {
+        const s = t.start_minutes ?? from, e = t.end_minutes ?? to;
+        return `<div class="cal-ev off" style="top:${posOf(s)}px;height:${Math.max(CAL_MIN_H, posOf(e) - posOf(s))}px">
+                  <b>${t.reason || "Не работает"}</b></div>`;
+      }).join("")}
+
+      ${layoutEvents(events).map(({ b, s, e, lane, lanes }) => {
+        const cls = ["cancelled", "no_show"].includes(b.status) ? "cancelled" : b.status === "completed" ? "done" : "";
+        const name = b.client_full_name || b.client_name || "Без имени";
+        const label = b.custom_service_label || b.service_name || "";
+        const w = 100 / lanes;
+        return `<div class="cal-ev ${cls}"
+                     style="top:${posOf(s)}px;height:${Math.max(CAL_MIN_H, posOf(e) - posOf(s))}px;
+                            left:calc(${lane * w}% + 3px); right:auto; width:calc(${w}% - 6px)"
+                     onclick='openVisitForm(${JSON.stringify(b).replace(/'/g, "&#39;")})' title="${fmtMinutes(s)}–${fmtMinutes(e)} · ${name} · ${label}">
+                  <b>${fmtMinutes(s)} ${name}</b><i>${label}</i>
+                </div>`;
+      }).join("")}
+
+      ${isToday && nowMin > from && nowMin < to
+        ? `<div class="cal-now" style="top:${posOf(nowMin)}px"></div>` : ""}
+    </div>`;
+}
+
+// Пересекающиеся по времени записи ставим рядом, а не друг на друга.
+// Каждой записи ищем первую дорожку, которая к её началу уже освободилась.
+function layoutEvents(events) {
+  const items = [];
+  for (const b of events) {
+    const s = minutesOfDay(b.requested_datetime);
+    if (s == null) continue;
+    items.push({ b, s, e: minutesOfDay(b.end_datetime) ?? s + (b.duration_minutes || 60) });
+  }
+  items.sort((a, b) => a.s - b.s || a.e - b.e);
+
+  const laneEnds = [];
+  for (const it of items) {
+    let lane = laneEnds.findIndex((end) => end <= it.s);
+    if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
+    laneEnds[lane] = it.e;
+    it.lane = lane;
+  }
+
+  // Ширину считаем по группе пересечений, иначе одна накладка сжимает весь день
+  for (const it of items) {
+    const group = items.filter((o) => o.s < it.e && o.e > it.s);
+    it.lanes = Math.max(...group.map((o) => o.lane)) + 1;
+  }
+  return items;
+}
+
+function calShift(days) { calDate = shiftDate(calDate, days); renderCalendar(); }
+function calSet(value) { if (value) { calDate = value; renderCalendar(); } }
+function calPickEmployee(id) { calMobileEmployee = id; renderCalendar(); }
 
 // ---------- КЛИЕНТЫ ----------
 let currentClient = null;
@@ -1193,6 +1453,7 @@ async function saveProfile() {
 function render() {
   document.getElementById("content").innerHTML = `<div class="empty">Загрузка...</div>`;
   const renderers = {
+    calendar: renderCalendar,
     services: renderServices,
     employees: renderEmployees,
     clients: renderClients,

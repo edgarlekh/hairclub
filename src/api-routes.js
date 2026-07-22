@@ -22,6 +22,7 @@ const SALON_ID = 1; // пока один салон; при мультитена
 export async function handleApiRequest(request, env, path) {
   const db = env.DB;
   const method = request.method;
+  const url = new URL(request.url);
 
   // --- Профиль салона ---
   if (path === "/api/salon" && method === "GET") {
@@ -211,6 +212,66 @@ export async function handleApiRequest(request, env, path) {
     await db.prepare("DELETE FROM employee_time_off WHERE employee_id=?").bind(id).run();
     await db.prepare("DELETE FROM employees WHERE id=?").bind(id).run();
     return j({ ok: true });
+  }
+
+  // --- Календарь: всё нужное для главного экрана за один запрос ---
+  // Отдаём мастеров с их графиком на этот день, записи и отгулы — иначе панель
+  // делала бы по три запроса на каждого мастера.
+  if (path === "/api/calendar" && method === "GET") {
+    const date = url.searchParams.get("date");
+    if (!date) return j({ error: "Нужна дата" }, 400);
+    const weekday = new Date(date + "T00:00:00").getDay();
+
+    const { results: employees } = await db
+      .prepare(
+        `SELECT e.id, e.name, e.photo_url, s.start_minutes, s.end_minutes
+         FROM employees e
+         LEFT JOIN employee_schedule s ON s.employee_id = e.id AND s.weekday = ?
+         WHERE e.salon_id = ?
+         ORDER BY e.name`
+      )
+      .bind(weekday, SALON_ID)
+      .all();
+
+    const { results: bookings } = await db
+      .prepare(
+        `SELECT b.id, b.employee_id, b.client_id, b.client_name, b.client_phone,
+                b.requested_datetime, b.end_datetime, b.custom_service_label,
+                b.charged_amount, b.comment, b.status, b.source,
+                sv.name AS service_name,
+                COALESCE(sv.duration_max, sv.duration_min, 60) AS duration_minutes,
+                c.full_name AS client_full_name
+         FROM bookings b
+         LEFT JOIN services sv ON sv.id = b.service_id
+         LEFT JOIN clients c ON c.id = b.client_id
+         WHERE b.requested_datetime LIKE ?
+         ORDER BY b.requested_datetime`
+      )
+      .bind(`${date}%`)
+      .all();
+
+    const { results: timeOff } = await db
+      .prepare("SELECT employee_id, start_minutes, end_minutes, reason FROM employee_time_off WHERE date = ?")
+      .bind(date)
+      .all();
+
+    return j({ date, weekday, employees, bookings, timeOff });
+  }
+
+  // Счётчики для верхней плашки главного экрана
+  if (path === "/api/calendar/summary" && method === "GET") {
+    const date = url.searchParams.get("date");
+    if (!date) return j({ error: "Нужна дата" }, 400);
+    const row = await db
+      .prepare(
+        `SELECT COUNT(*) AS всего,
+                SUM(CASE WHEN status IN ('cancelled','no_show') THEN 1 ELSE 0 END) AS отменённых,
+                SUM(CASE WHEN status NOT IN ('cancelled','no_show') THEN COALESCE(charged_amount,0) ELSE 0 END) AS выручка
+         FROM bookings WHERE requested_datetime LIKE ?`
+      )
+      .bind(`${date}%`)
+      .first();
+    return j(row);
   }
 
   // --- График работы мастера ---
