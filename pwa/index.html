@@ -143,6 +143,7 @@
 <nav id="tabs">
   <button data-tab="services" class="active">Услуги</button>
   <button data-tab="employees">Мастера</button>
+  <button data-tab="clients">Клиенты</button>
   <button data-tab="rules">Правила</button>
   <button data-tab="knowledge">База знаний</button>
   <button data-tab="conversations">Диалоги</button>
@@ -304,6 +305,7 @@ async function deleteService(id) {
 
 // ---------- МАСТЕРА ----------
 let allServicesCache = [];
+let allEmployeesCache = [];
 
 async function renderEmployees() {
   document.getElementById("fab").style.display = "block";
@@ -375,6 +377,274 @@ async function deleteEmployee(id) {
   await api(`/employees/${id}`, { method: "DELETE" });
   closeModal();
   renderEmployees();
+}
+
+// ---------- КЛИЕНТЫ ----------
+let currentClient = null;
+let clientCardTab = "profile";
+let clientSearchTimer = null;
+
+async function renderClients() {
+  document.getElementById("fab").style.display = "block";
+  document.getElementById("fab").onclick = () => openClientForm();
+  document.getElementById("content").innerHTML = `
+    <input id="client_search" placeholder="Поиск по имени или телефону..." style="margin-bottom:14px" oninput="debounceClientSearch()">
+    <div id="clients_list">Загрузка...</div>
+  `;
+  await loadClientsList("");
+}
+
+function debounceClientSearch() {
+  clearTimeout(clientSearchTimer);
+  clientSearchTimer = setTimeout(() => loadClientsList(document.getElementById("client_search").value.trim()), 300);
+}
+
+async function loadClientsList(q) {
+  const clients = await api(`/clients${q ? "?q=" + encodeURIComponent(q) : ""}`);
+  const list = document.getElementById("clients_list");
+  if (!list) return;
+  if (!clients.length) {
+    list.innerHTML = `<div class="empty">${q ? "Никого не найдено" : "Пока нет клиентов"}</div>`;
+    return;
+  }
+  list.innerHTML = clients.map(c => `
+    <div class="card" onclick='openClientForm({id:${c.id}})'>
+      <h3>${c.full_name}</h3>
+      <p>${c.phone || "телефон не указан"}</p>
+    </div>
+  `).join("");
+}
+
+async function openClientForm(clientLite = {}) {
+  if (clientLite.id) {
+    currentClient = await api(`/clients/${clientLite.id}`);
+    clientCardTab = "profile";
+    renderClientCard();
+    return;
+  }
+  openModal(`
+    <h2>Новый клиент</h2>
+    <label>Имя и фамилия</label>
+    <input id="c_new_name">
+    <label>Телефон</label>
+    <input id="c_new_phone">
+    <button class="btn-primary" onclick="createClient()">Сохранить</button>
+  `);
+}
+
+async function createClient() {
+  const full_name = document.getElementById("c_new_name").value.trim();
+  const phone = document.getElementById("c_new_phone").value.trim();
+  if (!full_name) { alert("Укажи имя"); return; }
+  await api("/clients", { method: "POST", body: JSON.stringify({ full_name, phone }) });
+  closeModal();
+  renderClients();
+}
+
+function renderClientCard() {
+  const c = currentClient;
+  openModal(`
+    <h2>${c.full_name}</h2>
+    <div style="display:flex; gap:16px; margin-bottom:14px; border-bottom:1px solid var(--border); padding-bottom:10px;">
+      <button class="link-btn" id="tab_profile_btn" onclick="switchClientTab('profile')">Профиль</button>
+      <button class="link-btn" id="tab_visits_btn" onclick="switchClientTab('visits')">Записи</button>
+    </div>
+    <div id="client_card_body">Загрузка...</div>
+  `);
+  updateClientTabButtons();
+  if (clientCardTab === "profile") renderClientProfileBody();
+  else renderClientVisitsBody();
+}
+
+function updateClientTabButtons() {
+  document.getElementById("tab_profile_btn").style.color = clientCardTab === "profile" ? "var(--gold-1)" : "var(--muted)";
+  document.getElementById("tab_visits_btn").style.color = clientCardTab === "visits" ? "var(--gold-1)" : "var(--muted)";
+}
+
+function switchClientTab(tab) {
+  clientCardTab = tab;
+  updateClientTabButtons();
+  if (tab === "profile") renderClientProfileBody();
+  else renderClientVisitsBody();
+}
+
+function renderClientProfileBody() {
+  const c = currentClient;
+  document.getElementById("client_card_body").innerHTML = `
+    <label>Имя и фамилия</label>
+    <input id="c_name" value="${c.full_name || ""}">
+    <label>Телефон</label>
+    <input id="c_phone" value="${c.phone || ""}">
+    <div class="row">
+      <div><label>Email</label><input id="c_email" value="${c.email || ""}"></div>
+      <div><label>День рождения</label><input id="c_birthday" type="date" value="${c.birthday || ""}"></div>
+    </div>
+    <label>Адрес</label>
+    <input id="c_address" value="${c.address || ""}">
+    <div class="row">
+      <div><label>Баланс</label><input id="c_balance" type="number" value="${c.balance || 0}"></div>
+      <div><label>Скидка</label><input id="c_discount" type="number" value="${c.discount || 0}"></div>
+    </div>
+    <label>Комментарий</label>
+    <textarea id="c_comment" rows="6">${c.comment || ""}</textarea>
+    <button class="btn-primary" onclick="saveClientProfile()">Сохранить</button>
+    <button class="btn-secondary" onclick="deleteClient(${c.id})">Удалить клиента</button>
+  `;
+}
+
+async function saveClientProfile() {
+  const payload = {
+    full_name: document.getElementById("c_name").value,
+    phone: document.getElementById("c_phone").value,
+    email: document.getElementById("c_email").value,
+    birthday: document.getElementById("c_birthday").value,
+    address: document.getElementById("c_address").value,
+    balance: parseFloat(document.getElementById("c_balance").value) || 0,
+    discount: parseFloat(document.getElementById("c_discount").value) || 0,
+    comment: document.getElementById("c_comment").value,
+  };
+  await api(`/clients/${currentClient.id}`, { method: "PUT", body: JSON.stringify(payload) });
+  closeModal();
+  renderClients();
+}
+
+async function deleteClient(id) {
+  if (!confirm("Удалить этого клиента? Записи останутся, но без привязки к клиенту.")) return;
+  await api(`/clients/${id}`, { method: "DELETE" });
+  closeModal();
+  renderClients();
+}
+
+async function renderClientVisitsBody() {
+  const [bookings, employees, services] = await Promise.all([
+    api(`/clients/${currentClient.id}/bookings`),
+    api("/employees"),
+    api("/services"),
+  ]);
+  allEmployeesCache = employees;
+  allServicesCache = services;
+  document.getElementById("client_card_body").innerHTML = `
+    <button class="btn-primary" style="margin-top:0" onclick="openVisitForm()">+ Новая запись</button>
+    <div id="visits_list">${renderVisitsList(bookings)}</div>
+  `;
+}
+
+function statusLabel(status) {
+  return { pending: "Новая", confirmed: "Подтверждена", completed: "Завершена", cancelled: "Отменена", no_show: "Не пришёл" }[status] || status;
+}
+
+function renderVisitsList(bookings) {
+  if (!bookings.length) return `<p class="empty">Пока нет записей.</p>`;
+  return bookings.map(b => `
+    <div class="card" onclick='openVisitForm(${JSON.stringify(b)})'>
+      <h3>${b.custom_service_label || b.service_name || "Без указания услуги"}</h3>
+      <p>${(b.requested_datetime || "").replace("T", " ").slice(0, 16)} ${b.employee_name ? "· мастер " + b.employee_name : ""}</p>
+      <p>${b.charged_amount ? b.charged_amount + " PLN · " : ""}<span class="badge ${b.status === "cancelled" || b.status === "no_show" ? "escalated" : ""}">${statusLabel(b.status)}</span></p>
+      ${b.comment ? `<p>${b.comment}</p>` : ""}
+    </div>
+  `).join("");
+}
+
+function openVisitForm(booking = {}) {
+  const isEdit = !!booking.id;
+  const employeeOptions = allEmployeesCache.map(e => `<option value="${e.id}" ${booking.employee_id === e.id ? "selected" : ""}>${e.name}</option>`).join("");
+  const serviceOptions = allServicesCache.map(s => `<option value="${s.id}" ${booking.service_id === s.id ? "selected" : ""}>${s.name}</option>`).join("");
+  openModal(`
+    <h2>${isEdit ? "Запись" : "Новая запись"}</h2>
+    <label>Мастер</label>
+    <select id="v_employee"><option value="">—</option>${employeeOptions}</select>
+    <label>Услуга из каталога (необязательно)</label>
+    <select id="v_service"><option value="">—</option>${serviceOptions}</select>
+    <label>Название услуги (если отличается от каталога)</label>
+    <input id="v_label" value="${booking.custom_service_label || ""}" placeholder="например: Korekta 150 gr">
+    <div class="row">
+      <div><label>Дата и время</label><input id="v_datetime" type="datetime-local" value="${(booking.requested_datetime || "").slice(0, 16)}"></div>
+      <div><label>Сумма (PLN)</label><input id="v_amount" type="number" value="${booking.charged_amount || ""}"></div>
+    </div>
+    <label>Статус</label>
+    <select id="v_status">
+      <option value="completed" ${booking.status === "completed" ? "selected" : ""}>Завершена</option>
+      <option value="confirmed" ${booking.status === "confirmed" ? "selected" : ""}>Подтверждена</option>
+      <option value="pending" ${booking.status === "pending" || !booking.status ? "selected" : ""}>Новая</option>
+      <option value="cancelled" ${booking.status === "cancelled" ? "selected" : ""}>Отменена</option>
+      <option value="no_show" ${booking.status === "no_show" ? "selected" : ""}>Не пришёл</option>
+    </select>
+    <label>Комментарий</label>
+    <textarea id="v_comment" rows="3">${booking.comment || ""}</textarea>
+    <button class="btn-primary" onclick="saveVisit(${booking.id || "null"})">Сохранить</button>
+    ${isEdit ? `<button class="link-btn" onclick='openVisitPhotos(${JSON.stringify(booking)})'>Фото визита →</button>` : ""}
+    ${isEdit ? `<button class="btn-secondary" onclick="deleteVisit(${booking.id})">Удалить запись</button>` : ""}
+    <button class="btn-secondary" onclick="renderClientCard()">← Назад к записям</button>
+  `);
+}
+
+async function saveVisit(id) {
+  const payload = {
+    client_id: currentClient.id,
+    employee_id: parseInt(document.getElementById("v_employee").value) || null,
+    service_id: parseInt(document.getElementById("v_service").value) || null,
+    custom_service_label: document.getElementById("v_label").value || null,
+    requested_datetime: document.getElementById("v_datetime").value,
+    charged_amount: parseFloat(document.getElementById("v_amount").value) || null,
+    status: document.getElementById("v_status").value,
+    comment: document.getElementById("v_comment").value,
+  };
+  if (id) {
+    await api(`/bookings/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+  } else {
+    await api("/bookings", { method: "POST", body: JSON.stringify(payload) });
+  }
+  clientCardTab = "visits";
+  renderClientCard();
+}
+
+async function deleteVisit(id) {
+  if (!confirm("Удалить эту запись?")) return;
+  await api(`/bookings/${id}`, { method: "DELETE" });
+  clientCardTab = "visits";
+  renderClientCard();
+}
+
+async function openVisitPhotos(booking) {
+  const photos = await api(`/bookings/${booking.id}/photos`);
+  openModal(`
+    <h2>Фото визита</h2>
+    <div id="photos_list">${renderVisitPhotosList(photos, booking.id)}</div>
+    <label>Ссылка на фото (URL)</label>
+    <input id="vph_url" placeholder="https://...">
+    <label>Подпись</label>
+    <input id="vph_caption" placeholder="например: после процедуры">
+    <button class="btn-primary" onclick='addVisitPhoto(${booking.id})'>Добавить фото</button>
+    <button class="btn-secondary" onclick='openVisitForm(${JSON.stringify(booking)})'>← Назад к записи</button>
+  `);
+}
+
+function renderVisitPhotosList(photos, bookingId) {
+  if (!photos.length) return `<p style="font-size:13px;color:var(--muted)">Пока нет фото.</p>`;
+  return photos.map(p => `
+    <div class="photo-row">
+      <img src="${p.photo_url}" alt="" onerror="this.style.visibility='hidden'">
+      <div class="photo-info">${p.caption || ""}</div>
+      <button class="photo-del" onclick="deleteVisitPhoto(${bookingId}, ${p.id})" title="Удалить фото">×</button>
+    </div>
+  `).join("");
+}
+
+async function addVisitPhoto(bookingId) {
+  const photo_url = document.getElementById("vph_url").value.trim();
+  const caption = document.getElementById("vph_caption").value.trim();
+  if (!photo_url) { alert("Укажи ссылку на фото"); return; }
+  await api(`/bookings/${bookingId}/photos`, { method: "POST", body: JSON.stringify({ photo_url, caption }) });
+  const photos = await api(`/bookings/${bookingId}/photos`);
+  document.getElementById("photos_list").innerHTML = renderVisitPhotosList(photos, bookingId);
+  document.getElementById("vph_url").value = "";
+  document.getElementById("vph_caption").value = "";
+}
+
+async function deleteVisitPhoto(bookingId, photoId) {
+  await api(`/bookings/${bookingId}/photos/${photoId}`, { method: "DELETE" });
+  const photos = await api(`/bookings/${bookingId}/photos`);
+  document.getElementById("photos_list").innerHTML = renderVisitPhotosList(photos, bookingId);
 }
 
 // ---------- ПРАВИЛА / ОГРАНИЧЕНИЯ ----------
@@ -573,6 +843,7 @@ function render() {
   const renderers = {
     services: renderServices,
     employees: renderEmployees,
+    clients: renderClients,
     rules: renderRules,
     knowledge: renderKnowledge,
     conversations: renderConversations,

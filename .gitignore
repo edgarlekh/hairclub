@@ -2,4 +2,7 @@
 node_modules/
 .env
 .env.local
+.dev.vars
+migrations/003_import_clients.sql
+migrations/004_import_bumpix.sql
 *.log

@@ -69,6 +69,7 @@ export async function handlePublicRequest(request, env, path) {
       dateStr: b.date,
       timeStr: b.time,
       conversationId: b.conversation_id || null,
+      source: "site",
     });
     return j(result, result.ok ? 200 : 409);
   }

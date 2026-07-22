@@ -199,6 +199,170 @@ export async function handleApiRequest(request, env, path) {
     return j({ ok: true });
   }
 
+  // --- Клиенты ---
+  if (path === "/api/clients" && method === "GET") {
+    const q = new URL(request.url).searchParams.get("q");
+    const query = q
+      ? db
+          .prepare(
+            "SELECT id, full_name, phone, email FROM clients WHERE salon_id = ? AND (full_name LIKE ? OR phone LIKE ?) ORDER BY full_name LIMIT 200"
+          )
+          .bind(SALON_ID, `%${q}%`, `%${q}%`)
+      : db
+          .prepare("SELECT id, full_name, phone, email FROM clients WHERE salon_id = ? ORDER BY full_name LIMIT 200")
+          .bind(SALON_ID);
+    const { results } = await query.all();
+    return j(results);
+  }
+  if (path === "/api/clients" && method === "POST") {
+    const b = await request.json();
+    const result = await db
+      .prepare(
+        `INSERT INTO clients (salon_id, full_name, phone, email, address, birthday, balance, discount, comment)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`
+      )
+      .bind(
+        SALON_ID,
+        b.full_name,
+        b.phone || null,
+        b.email || null,
+        b.address || null,
+        b.birthday || null,
+        b.balance || 0,
+        b.discount || 0,
+        b.comment || ""
+      )
+      .first();
+    return j({ id: result.id });
+  }
+  const clientMatch = path.match(/^\/api\/clients\/(\d+)$/);
+  if (clientMatch && method === "GET") {
+    const client = await db.prepare("SELECT * FROM clients WHERE id = ?").bind(clientMatch[1]).first();
+    if (!client) return j({ error: "Клиент не найден" }, 404);
+    return j(client);
+  }
+  if (clientMatch && method === "PUT") {
+    const b = await request.json();
+    await db
+      .prepare(
+        `UPDATE clients SET full_name=?, phone=?, email=?, address=?, birthday=?, balance=?, discount=?, comment=? WHERE id=?`
+      )
+      .bind(
+        b.full_name,
+        b.phone || null,
+        b.email || null,
+        b.address || null,
+        b.birthday || null,
+        b.balance || 0,
+        b.discount || 0,
+        b.comment || "",
+        clientMatch[1]
+      )
+      .run();
+    return j({ ok: true });
+  }
+  if (clientMatch && method === "DELETE") {
+    await db.prepare("DELETE FROM clients WHERE id=?").bind(clientMatch[1]).run();
+    return j({ ok: true });
+  }
+
+  const clientBookingsMatch = path.match(/^\/api\/clients\/(\d+)\/bookings$/);
+  if (clientBookingsMatch && method === "GET") {
+    const { results } = await db
+      .prepare(
+        `SELECT b.*, s.name as service_name, e.name as employee_name
+         FROM bookings b
+         LEFT JOIN services s ON b.service_id = s.id
+         LEFT JOIN employees e ON b.employee_id = e.id
+         WHERE b.client_id = ? ORDER BY b.requested_datetime DESC`
+      )
+      .bind(clientBookingsMatch[1])
+      .all();
+    return j(results);
+  }
+
+  // --- Записи (визиты) — ручное управление владельцем ---
+  if (path === "/api/bookings" && method === "POST") {
+    const b = await request.json();
+    let clientId = b.client_id || null;
+    if (!clientId && b.client_name) {
+      const result = await db
+        .prepare("INSERT INTO clients (salon_id, full_name, phone) VALUES (?, ?, ?) RETURNING id")
+        .bind(SALON_ID, b.client_name, b.client_phone || null)
+        .first();
+      clientId = result.id;
+    }
+    const result = await db
+      .prepare(
+        `INSERT INTO bookings (client_id, service_id, employee_id, client_name, client_phone, requested_datetime, end_datetime, custom_service_label, charged_amount, comment, status, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual') RETURNING id`
+      )
+      .bind(
+        clientId,
+        b.service_id || null,
+        b.employee_id || null,
+        b.client_name || null,
+        b.client_phone || null,
+        b.requested_datetime,
+        b.end_datetime || null,
+        b.custom_service_label || null,
+        b.charged_amount || null,
+        b.comment || null,
+        b.status || "completed"
+      )
+      .first();
+    return j({ id: result.id });
+  }
+  const bookingMatch = path.match(/^\/api\/bookings\/(\d+)$/);
+  if (bookingMatch && method === "PUT") {
+    const b = await request.json();
+    await db
+      .prepare(
+        `UPDATE bookings SET service_id=?, employee_id=?, requested_datetime=?, end_datetime=?, custom_service_label=?, charged_amount=?, comment=?, status=? WHERE id=?`
+      )
+      .bind(
+        b.service_id || null,
+        b.employee_id || null,
+        b.requested_datetime,
+        b.end_datetime || null,
+        b.custom_service_label || null,
+        b.charged_amount || null,
+        b.comment || null,
+        b.status || "completed",
+        bookingMatch[1]
+      )
+      .run();
+    return j({ ok: true });
+  }
+  if (bookingMatch && method === "DELETE") {
+    await db.prepare("DELETE FROM visit_photos WHERE booking_id=?").bind(bookingMatch[1]).run();
+    await db.prepare("DELETE FROM bookings WHERE id=?").bind(bookingMatch[1]).run();
+    return j({ ok: true });
+  }
+
+  // --- Фото визита ---
+  const visitPhotosMatch = path.match(/^\/api\/bookings\/(\d+)\/photos$/);
+  if (visitPhotosMatch && method === "GET") {
+    const { results } = await db
+      .prepare("SELECT * FROM visit_photos WHERE booking_id = ?")
+      .bind(visitPhotosMatch[1])
+      .all();
+    return j(results);
+  }
+  if (visitPhotosMatch && method === "POST") {
+    const b = await request.json();
+    const result = await db
+      .prepare("INSERT INTO visit_photos (booking_id, photo_url, caption) VALUES (?, ?, ?) RETURNING id")
+      .bind(visitPhotosMatch[1], b.photo_url, b.caption || "")
+      .first();
+    return j({ id: result.id });
+  }
+  const visitPhotoDeleteMatch = path.match(/^\/api\/bookings\/\d+\/photos\/(\d+)$/);
+  if (visitPhotoDeleteMatch && method === "DELETE") {
+    await db.prepare("DELETE FROM visit_photos WHERE id=?").bind(visitPhotoDeleteMatch[1]).run();
+    return j({ ok: true });
+  }
+
   // --- Диалоги (просмотр + вмешательство владельца) ---
   if (path === "/api/conversations" && method === "GET") {
     const { results } = await db

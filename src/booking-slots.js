@@ -79,7 +79,24 @@ export async function getAvailableSlots(db, employeeId, serviceId, dateStr) {
   return { slots };
 }
 
-export async function createBookingSafe(db, { serviceId, employeeId, clientName, clientPhone, dateStr, timeStr, conversationId }) {
+const SALON_ID = 1;
+
+async function upsertClient(db, { clientName, clientPhone }) {
+  if (clientPhone) {
+    const existing = await db
+      .prepare("SELECT id FROM clients WHERE salon_id = ? AND phone = ?")
+      .bind(SALON_ID, clientPhone)
+      .first();
+    if (existing) return existing.id;
+  }
+  const result = await db
+    .prepare("INSERT INTO clients (salon_id, full_name, phone) VALUES (?, ?, ?) RETURNING id")
+    .bind(SALON_ID, clientName || "Без имени", clientPhone || null)
+    .first();
+  return result.id;
+}
+
+export async function createBookingSafe(db, { serviceId, employeeId, clientName, clientPhone, dateStr, timeStr, conversationId, source = "agent" }) {
   const requestedDatetime = `${dateStr}T${timeStr}:00`;
 
   // Повторная проверка перед записью — защита от двойного бронирования
@@ -107,12 +124,14 @@ export async function createBookingSafe(db, { serviceId, employeeId, clientName,
     }
   }
 
+  const clientId = await upsertClient(db, { clientName, clientPhone });
+
   const result = await db
     .prepare(
-      `INSERT INTO bookings (conversation_id, service_id, employee_id, client_name, client_phone, requested_datetime, status)
-       VALUES (?, ?, ?, ?, ?, ?, 'confirmed') RETURNING id`
+      `INSERT INTO bookings (conversation_id, client_id, service_id, employee_id, client_name, client_phone, requested_datetime, status, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', ?) RETURNING id`
     )
-    .bind(conversationId || null, serviceId, employeeId, clientName, clientPhone, requestedDatetime)
+    .bind(conversationId || null, clientId, serviceId, employeeId, clientName, clientPhone, requestedDatetime, source)
     .first();
 
   return { ok: true, bookingId: result.id };
