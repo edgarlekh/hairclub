@@ -2,7 +2,7 @@
  * Публичные роуты — БЕЗ токена (ими пользуются клиенты, не владелец).
  * Только чтение услуг/мастеров + создание брони. Никаких изменений цен и т.д.
  */
-import { getAvailableSlots, createBookingSafe } from "./booking-slots.js";
+import { getAvailableSlots, getAvailabilityRange, createBookingSafe } from "./booking-slots.js";
 
 function j(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
@@ -61,6 +61,25 @@ export async function handlePublicRequest(request, env, path) {
       return j({ error: "Нужны employee_id, service_id, date" }, 400);
     }
     const result = await getAvailableSlots(db, parseInt(employeeId), parseInt(serviceId), date);
+    return j(result);
+  }
+
+  // Свободные окна сразу на несколько дней — чтобы клиент видел, куда можно попасть,
+  // а не перебирал даты вслепую.
+  if (path === "/public/availability" && method === "GET") {
+    const serviceId = url.searchParams.get("service_id");
+    if (!serviceId) return j({ error: "Нужен service_id" }, 400);
+
+    const employeeId = url.searchParams.get("employee_id");
+    const from = url.searchParams.get("from") || new Date().toISOString().slice(0, 10);
+    const days = Math.min(Number(url.searchParams.get("days")) || 14, 31);
+
+    const result = await getAvailabilityRange(db, {
+      serviceId: parseInt(serviceId),
+      fromDate: from,
+      days,
+      employeeId: employeeId ? parseInt(employeeId) : null,
+    });
     return j(result);
   }
 

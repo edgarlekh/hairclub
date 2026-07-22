@@ -47,6 +47,28 @@
   .group-head { font-family: var(--font-heading); font-size:15px; font-weight:600; color: var(--gold-mid);
                 margin: 20px 0 8px; }
   .group-head:first-child { margin-top: 0; }
+
+  /* Выбранная услуга — напоминание, что человек уже выбрал */
+  .chosen { background:white; border:1px solid var(--border); border-radius:12px; padding:10px 13px; margin-bottom:14px; }
+  .chosen b { display:block; font-size:14px; }
+  .chosen span { font-size:12px; color:var(--muted); }
+
+  /* Лента дней: сразу видно, где есть места, а где нет */
+  .days-strip { display:flex; gap:8px; overflow-x:auto; padding:2px 0 10px; -webkit-overflow-scrolling:touch; }
+  .day { flex:none; min-width:62px; border:1px solid var(--border); background:white; border-radius:12px;
+         padding:8px 6px; text-align:center; cursor:pointer; font-family:inherit; transition:border-color .15s; }
+  .day:hover:not(.empty-day) { border-color: var(--gold-2); }
+  .day b { display:block; font-size:17px; font-family:var(--font-heading); }
+  .day small { display:block; font-size:10px; color:var(--muted); text-transform:lowercase; }
+  .day .free { display:block; font-size:10px; color:var(--gold-mid); margin-top:3px; }
+  .day.selected { background:var(--gradient); border-color:transparent; color:white; }
+  .day.selected small, .day.selected .free { color:rgba(255,255,255,.85); }
+  .day.empty-day { opacity:.4; cursor:not-allowed; }
+
+  .period { margin-top:16px; }
+  .period-name { font-size:12px; color:var(--muted); margin-bottom:7px; }
+  .slot small { display:block; font-size:10px; opacity:.7; }
+  .no-slots { text-align:center; color:var(--muted); font-size:14px; padding:22px 10px; }
   .slots { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
   .slot { padding:10px 14px; border:1px solid var(--border); border-radius:10px; cursor:pointer; font-size:14px; background: white; transition: background 0.15s, color 0.15s, border-color 0.15s; }
   .slot:hover, .slot.selected { background: var(--gradient); color:white; border-color:transparent; }
@@ -78,7 +100,6 @@
 
 <div class="progress" id="progress">
   <div class="dot" data-step="service"></div>
-  <div class="dot" data-step="employee"></div>
   <div class="dot" data-step="date"></div>
   <div class="dot" data-step="contact"></div>
 </div>
@@ -89,18 +110,12 @@
     <div id="services-list" class="empty">Загрузка услуг...</div>
   </div>
 
-  <div class="step" id="step-employee">
-    <button class="back" onclick="goToStep('service')">← Назад к услугам</button>
-    <div class="step-title">Выберите мастера</div>
-    <div id="employees-list" class="empty"></div>
-  </div>
-
   <div class="step" id="step-date">
-    <button class="back" onclick="goToStep('employee')">← Назад к мастерам</button>
-    <div class="step-title">Выберите дату и время</div>
-    <label>Дата</label>
-    <input type="date" id="date-input" onchange="loadSlots()">
-    <div id="slots-list" class="slots"></div>
+    <button class="back" onclick="goToStep('service')">← Назад к услугам</button>
+    <div class="step-title">Когда вам удобно?</div>
+    <div id="chosen-service" class="chosen"></div>
+    <div id="days-strip" class="days-strip"></div>
+    <div id="slots-list"></div>
   </div>
 
   <div class="step" id="step-contact">
@@ -131,7 +146,7 @@ const API_BASE = "https://salon-agent.edgar-lekh99.workers.dev/public";
 
 let state = { service: null, employee: null, date: null, time: null };
 
-const STEP_ORDER = ["service", "employee", "date", "contact", "success"];
+const STEP_ORDER = ["service", "date", "contact", "success"];
 
 function goToStep(name) {
   document.querySelectorAll(".step").forEach(s => s.classList.remove("active"));
@@ -188,38 +203,125 @@ async function loadServices() {
   `).join("");
 }
 
+const DAY_SHORT = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+const MONTH_SHORT = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
+let availability = [];
+
 async function selectService(service) {
   state.service = service;
-  const employees = await api(`/employees?service_id=${service.id}`);
-  const el = document.getElementById("employees-list");
-  el.innerHTML = employees.length
-    ? employees.map(e => `<div class="card" onclick='selectEmployee(${JSON.stringify(e)})'><h3>${e.name}</h3></div>`).join("")
-    : `<div class="empty">Нет доступных мастеров для этой услуги</div>`;
-  goToStep("employee");
-}
+  state.date = state.time = state.employee = null;
 
-function selectEmployee(employee) {
-  state.employee = employee;
-  document.getElementById("date-input").min = new Date().toISOString().slice(0, 10);
+  document.getElementById("chosen-service").innerHTML = `
+    <b>${service.name}</b>
+    <span>${fmtRange(service.price_min, service.price_max, service.currency || "PLN")}${
+      fmtRange(service.duration_min, service.duration_max, "мин") ? " · " + fmtRange(service.duration_min, service.duration_max, "мин") : ""}</span>`;
+
+  document.getElementById("days-strip").innerHTML = `<div class="empty">Ищем свободное время...</div>`;
+  document.getElementById("slots-list").innerHTML = "";
   goToStep("date");
+
+  const res = await api(`/availability?service_id=${service.id}&days=21`);
+  if (res.error) {
+    document.getElementById("days-strip").innerHTML = `<div class="empty">${res.error}</div>`;
+    return;
+  }
+  availability = res.days || [];
+  renderDaysStrip();
+
+  // Сразу открываем ближайший день со свободным временем: чаще всего человек
+  // хочет «как можно раньше», и лишний клик тут ни к чему.
+  const first = availability.find(d => d.slots.length);
+  if (first) selectDay(first.date);
+  else document.getElementById("slots-list").innerHTML =
+    `<div class="no-slots">На ближайшие три недели свободного времени нет.<br>Позвоните нам, подберём вариант.</div>`;
 }
 
-async function loadSlots() {
-  const date = document.getElementById("date-input").value;
-  if (!date) return;
+function renderDaysStrip() {
+  document.getElementById("days-strip").innerHTML = availability.map(d => {
+    const date = new Date(d.date + "T00:00:00");
+    const free = d.slots.length;
+    return `
+      <button class="day ${free ? "" : "empty-day"} ${d.date === state.date ? "selected" : ""}"
+              ${free ? `onclick="selectDay('${d.date}')"` : "disabled"}>
+        <small>${DAY_SHORT[d.weekday]}</small>
+        <b>${date.getDate()}</b>
+        <small>${MONTH_SHORT[date.getMonth()]}</small>
+        <span class="free">${free ? free + " " + plural(free, "окно", "окна", "окон") : "—"}</span>
+      </button>`;
+  }).join("");
+}
+
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+  return many;
+}
+
+function selectDay(date) {
   state.date = date;
-  const result = await api(`/slots?employee_id=${state.employee.id}&service_id=${state.service.id}&date=${date}`);
+  state.time = null;
+  renderDaysStrip();
+  document.querySelector(".day.selected")?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+
+  const day = availability.find(d => d.date === date);
   const el = document.getElementById("slots-list");
-  if (result.error) { el.innerHTML = `<div class="empty">${result.error}</div>`; return; }
-  if (!result.slots || !result.slots.length) { el.innerHTML = `<div class="empty">${result.note || "Нет свободных слотов на эту дату"}</div>`; return; }
-  el.innerHTML = result.slots.map(t => `<div class="slot" onclick="selectTime('${t}', this)">${t}</div>`).join("");
+  if (!day || !day.slots.length) { el.innerHTML = `<div class="no-slots">В этот день свободного времени нет.</div>`; return; }
+
+  // Разбиваем по времени суток — так проще искать глазами, чем в сплошной ленте
+  const periods = [
+    { name: "Утро", from: 0, to: 12 * 60 },
+    { name: "День", from: 12 * 60, to: 17 * 60 },
+    { name: "Вечер", from: 17 * 60, to: 24 * 60 },
+  ];
+  const toMin = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+
+  el.innerHTML = periods.map(p => {
+    const slots = day.slots.filter(s => toMin(s.time) >= p.from && toMin(s.time) < p.to);
+    if (!slots.length) return "";
+    return `
+      <div class="period">
+        <div class="period-name">${p.name}</div>
+        <div class="slots">
+          ${slots.map(s => `
+            <div class="slot" onclick='pickSlot("${s.time}", ${JSON.stringify(s.employees).replace(/'/g, "&#39;")}, this)'>
+              ${s.time}
+              ${s.employees.length === 1 ? `<small>${s.employees[0].name}</small>` : ""}
+            </div>`).join("")}
+        </div>
+      </div>`;
+  }).join("");
 }
 
-function selectTime(time, el) {
+function pickSlot(time, employees, el) {
   document.querySelectorAll(".slot").forEach(s => s.classList.remove("selected"));
   el.classList.add("selected");
   state.time = time;
-  setTimeout(() => goToStep("contact"), 300);
+
+  // Если в это время свободен один мастер — выбирать не из чего, идём дальше.
+  if (employees.length === 1) {
+    state.employee = employees[0];
+    setTimeout(() => goToStep("contact"), 300);
+    return;
+  }
+  // Иначе даём выбрать, но с вариантом «не важно» — большинству всё равно.
+  const el2 = document.getElementById("slots-list");
+  el2.innerHTML = `
+    <div class="period">
+      <div class="period-name">Кто вас примет в ${time}?</div>
+      <div class="card" onclick='chooseMaster(${JSON.stringify(employees[0]).replace(/'/g, "&#39;")})'>
+        <h3>Не важно</h3><p>Запишем к свободному мастеру</p>
+      </div>
+      ${employees.map(e => `
+        <div class="card" onclick='chooseMaster(${JSON.stringify(e).replace(/'/g, "&#39;")})'><h3>${e.name}</h3></div>
+      `).join("")}
+    </div>
+    <button class="back" onclick="selectDay('${state.date}')">← Назад ко времени</button>`;
+}
+
+function chooseMaster(employee) {
+  state.employee = employee;
+  goToStep("contact");
 }
 
 async function submitBooking() {
