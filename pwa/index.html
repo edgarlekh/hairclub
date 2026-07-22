@@ -160,7 +160,7 @@
 
 <script>
 const API_BASE = "https://salon-agent.edgar-lekh99.workers.dev/api";
-const ADMIN_TOKEN = "ZQm3BfoYyVk6XxIJlLa0GitW2M1qD4cH"; // тот же токен, что задан в wrangler secret ADMIN_TOKEN
+let ADMIN_TOKEN = localStorage.getItem("hc_admin_token") || ""; // вводится через экран входа, не хранится в коде
 
 let currentTab = "services";
 
@@ -819,6 +819,7 @@ async function renderProfile() {
       <p style="margin-top:6px; font-size:12px;">Агент никогда не будет использовать эти слова в переписке с клиентами.</p>
 
       <button class="btn-primary" onclick="saveProfile()">Сохранить</button>
+      <button class="btn-secondary" onclick="logout()">Выйти из панели</button>
     </div>
   `;
 }
@@ -852,7 +853,57 @@ function render() {
   renderers[currentTab]();
 }
 
-render();
+// ---------- ВХОД (защита панели токеном) ----------
+function showLogin(errorMsg) {
+  document.querySelector("nav").style.display = "none";
+  document.getElementById("fab").style.display = "none";
+  document.getElementById("content").innerHTML = `
+    <div class="card" style="max-width:360px;margin:40px auto;">
+      <h3 style="text-align:center">Вход в панель</h3>
+      <p style="text-align:center">Введите токен доступа владельца.</p>
+      ${errorMsg ? `<p style="color:var(--terracotta);text-align:center">${errorMsg}</p>` : ""}
+      <label>Токен доступа</label>
+      <input id="login_token" type="password" placeholder="Токен">
+      <button class="btn-primary" onclick="doLogin()">Войти</button>
+    </div>`;
+  const inp = document.getElementById("login_token");
+  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+  inp.focus();
+}
+
+async function doLogin() {
+  const token = document.getElementById("login_token").value.trim();
+  if (!token) return;
+  ADMIN_TOKEN = token;
+  const res = await fetch(`${API_BASE}/salon`, { headers: { "X-Admin-Token": token } });
+  if (res.ok) {
+    localStorage.setItem("hc_admin_token", token);
+    startApp();
+  } else {
+    ADMIN_TOKEN = "";
+    showLogin("Неверный токен. Попробуйте ещё раз.");
+  }
+}
+
+function logout() {
+  localStorage.removeItem("hc_admin_token");
+  ADMIN_TOKEN = "";
+  location.reload();
+}
+
+function startApp() {
+  document.querySelector("nav").style.display = "flex";
+  render();
+}
+
+async function boot() {
+  if (!ADMIN_TOKEN) { showLogin(); return; }
+  const res = await fetch(`${API_BASE}/salon`, { headers: { "X-Admin-Token": ADMIN_TOKEN } });
+  if (res.ok) startApp();
+  else showLogin("Сессия истекла. Войдите снова.");
+}
+
+boot();
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
