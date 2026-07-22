@@ -3,7 +3,11 @@ node_modules/
 .env
 .env.local
 .dev.vars
+*.log
+
+# Дампы и импорты с персональными данными клиентов — в репозиторий не кладём
+backup*.sql
+*backup*.sql
 migrations/003_import_clients.sql
 migrations/004_import_bumpix.sql
-*.log
 migrations/006_import_services.sql
