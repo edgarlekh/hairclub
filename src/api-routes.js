@@ -278,6 +278,21 @@ export async function handleApiRequest(request, env, path) {
       )
       .bind(clientBookingsMatch[1])
       .all();
+
+    // Подтягиваем фото всех визитов одним запросом и раскладываем по визитам
+    const ids = results.map((b) => b.id);
+    if (ids.length) {
+      const placeholders = ids.map(() => "?").join(",");
+      const { results: photos } = await db
+        .prepare(`SELECT id, booking_id, photo_url, caption FROM visit_photos WHERE booking_id IN (${placeholders})`)
+        .bind(...ids)
+        .all();
+      const byBooking = {};
+      for (const p of photos) (byBooking[p.booking_id] ??= []).push(p);
+      for (const b of results) b.photos = byBooking[b.id] || [];
+    } else {
+      for (const b of results) b.photos = [];
+    }
     return j(results);
   }
 
