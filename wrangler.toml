@@ -5,7 +5,7 @@ compatibility_date = "2026-01-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "salon-agent-db"
-database_id = "PASTE_YOUR_D1_DATABASE_ID_HERE"
+database_id = "74b3f778-f4f8-4d80-b370-d96e07e4bd07"
 
 # ANTHROPIC_API_KEY добавляется ОТДЕЛЬНО через:
 #   npx wrangler secret put ANTHROPIC_API_KEY

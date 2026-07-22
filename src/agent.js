@@ -5,7 +5,7 @@
 import { retrieveContext, getSalon } from "./retrieval.js";
 import { getAvailableSlots, createBookingSafe } from "./booking-slots.js";
 
-const MODEL = "claude-sonnet-4-6";
+const MODEL = "claude-sonnet-5";
 
 const TOOLS = [
   {
@@ -240,7 +240,7 @@ export async function getAgentResponse(env, salonId, conversationId, clientMessa
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`Anthropic API error: ${errText}`);
+    throw new Error(`Anthropic API error (status ${res.status}): ${errText}`);
   }
 
   const data = await res.json();
