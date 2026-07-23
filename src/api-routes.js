@@ -404,6 +404,109 @@ export async function handleApiRequest(request, env, path) {
     const { results } = await query.all();
     return j(results);
   }
+
+  // --- Сводка: выручка, retention, заработок мастеров ---
+  // Период задаётся ?from=YYYY-MM-DD (по умолчанию — последние 30 дней).
+  const NOT_CANCELLED = "status NOT IN ('cancelled','no_show')";
+  if (path === "/api/analytics" && method === "GET") {
+    const from = url.searchParams.get("from") || new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+    // Верхняя граница — конец сегодняшнего дня: будущие записи в отчёт «за период» не берём
+    const to = (url.searchParams.get("to") || new Date().toISOString().slice(0, 10)) + "T23:59";
+    const inPeriod = `${NOT_CANCELLED} AND requested_datetime >= ? AND requested_datetime <= ?`;
+
+    // Итоги за период
+    const totals = await db
+      .prepare(
+        `SELECT COUNT(*) AS visits,
+                COALESCE(SUM(charged_amount),0) AS revenue,
+                COUNT(DISTINCT client_id) AS active_clients
+         FROM bookings WHERE ${inPeriod}`
+      )
+      .bind(from, to)
+      .first();
+
+    // Новые (первый визит в периоде) и вернувшиеся (первый визит раньше периода)
+    const retention = await db
+      .prepare(
+        `WITH firsts AS (
+           SELECT client_id, MIN(requested_datetime) AS fv
+           FROM bookings WHERE ${NOT_CANCELLED} AND client_id IS NOT NULL GROUP BY client_id
+         ),
+         active AS (
+           SELECT DISTINCT client_id FROM bookings
+           WHERE ${NOT_CANCELLED} AND client_id IS NOT NULL AND requested_datetime >= ? AND requested_datetime <= ?
+         )
+         SELECT
+           SUM(CASE WHEN f.fv >= ? THEN 1 ELSE 0 END) AS new_clients,
+           SUM(CASE WHEN f.fv <  ? THEN 1 ELSE 0 END) AS returning_clients
+         FROM active a JOIN firsts f ON f.client_id = a.client_id`
+      )
+      .bind(from, to, from, from)
+      .first();
+
+    // Заработок и число визитов по мастерам
+    const { results: byMaster } = await db
+      .prepare(
+        `SELECT e.id, e.name, e.color,
+                COUNT(b.id) AS visits,
+                COALESCE(SUM(b.charged_amount),0) AS revenue
+         FROM bookings b JOIN employees e ON e.id = b.employee_id
+         WHERE b.${inPeriod}
+         GROUP BY e.id ORDER BY revenue DESC`
+      )
+      .bind(from, to)
+      .all();
+
+    // Выручка по дням (для графика по дням/неделям)
+    const { results: byDay } = await db
+      .prepare(
+        `SELECT substr(requested_datetime,1,10) AS day,
+                COUNT(*) AS visits,
+                COALESCE(SUM(charged_amount),0) AS revenue
+         FROM bookings WHERE ${inPeriod}
+         GROUP BY day ORDER BY day`
+      )
+      .bind(from, to)
+      .all();
+
+    return j({ from, totals, retention, byMaster, byDay });
+  }
+
+  // Клиенты, которые давно не приходили — кандидаты на «вернитесь»
+  if (path === "/api/clients/dormant" && method === "GET") {
+    const months = Math.max(1, Number(url.searchParams.get("months") || 6));
+    const cutoff = new Date(Date.now() - months * 30 * 864e5).toISOString().slice(0, 10);
+    const { results } = await db
+      .prepare(
+        `SELECT c.id, c.full_name, c.phone,
+                MAX(b.requested_datetime) AS last_visit,
+                COUNT(b.id) AS visits
+         FROM clients c JOIN bookings b ON b.client_id = c.id AND b.${NOT_CANCELLED}
+         WHERE c.salon_id = ?
+         GROUP BY c.id
+         HAVING last_visit < ?
+         ORDER BY last_visit DESC LIMIT 200`
+      )
+      .bind(SALON_ID, cutoff)
+      .all();
+    return j(results);
+  }
+
+  // Дни рождения в выбранном месяце (по умолчанию — текущий)
+  if (path === "/api/clients/birthdays" && method === "GET") {
+    const month = String(url.searchParams.get("month") || new Date().getMonth() + 1).padStart(2, "0");
+    const { results } = await db
+      .prepare(
+        `SELECT id, full_name, phone, birthday
+         FROM clients
+         WHERE salon_id = ? AND birthday IS NOT NULL AND birthday != '' AND substr(birthday,6,2) = ?
+         ORDER BY substr(birthday,9,2)`
+      )
+      .bind(SALON_ID, month)
+      .all();
+    return j(results);
+  }
+
   if (path === "/api/clients" && method === "POST") {
     const b = await request.json();
     const result = await db

@@ -268,6 +268,41 @@
   .color-grid { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 12px; }
   .color-swatch { width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
   .color-swatch.active { border-color: var(--text); box-shadow: 0 0 0 2px white inset; }
+
+  /* ---------- СВОДКА ---------- */
+  .seg { display: inline-flex; background: var(--bg-soft); border: 1px solid var(--border);
+         border-radius: 999px; padding: 3px; gap: 2px; margin-bottom: 14px; flex-wrap: wrap; }
+  .seg button { border: none; background: none; border-radius: 999px; padding: 7px 14px;
+                font-size: 13px; font-family: inherit; cursor: pointer; color: var(--muted); }
+  .seg button.active { background: white; color: var(--gold-1); font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .sum-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 8px; }
+  .sum-card { background: white; border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+  .sum-card b { display: block; font-family: var(--font-heading); font-size: 24px; color: var(--gold-1); line-height: 1.1; }
+  .sum-card span { font-size: 12px; color: var(--muted); }
+  .sum-card.accent { background: var(--gradient); border-color: transparent; }
+  .sum-card.accent b, .sum-card.accent span { color: white; }
+  h3.sum-title { font-family: var(--font-heading); font-size: 16px; margin: 24px 0 10px; font-weight: 600; }
+
+  .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .bar-row .who { width: 92px; flex: none; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .bar-track { flex: 1; background: var(--bg-soft); border-radius: 7px; height: 26px; position: relative; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 7px; min-width: 2px; }
+  .bar-val { position: absolute; right: 8px; top: 0; line-height: 26px; font-size: 12px; font-weight: 600; color: var(--text); }
+  .bar-sub { font-size: 11px; color: var(--muted); }
+
+  .spark { display: flex; align-items: flex-end; gap: 2px; height: 90px; padding: 8px 0 4px;
+           border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .spark .col { flex: 1; min-width: 6px; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+  .spark .col .fill { background: var(--gold-2); border-radius: 3px 3px 0 0; min-height: 2px; }
+  .spark .col.today .fill { background: var(--terracotta); }
+  .spark-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  .lead { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+          background: white; border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; margin-bottom: 7px; cursor: pointer; }
+  .lead:hover { border-color: var(--gold-2); }
+  .lead .name { font-weight: 600; font-size: 14px; }
+  .lead .meta { font-size: 12px; color: var(--muted); }
+  .lead a.call { font-size: 13px; font-weight: 600; color: var(--gold-mid); text-decoration: none; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -284,6 +319,7 @@
   <button data-tab="services">Услуги</button>
   <button data-tab="employees">Мастера</button>
   <button data-tab="clients">Клиенты</button>
+  <button data-tab="summary">Сводка</button>
   <button data-tab="rules">Правила</button>
   <button data-tab="knowledge">База знаний</button>
   <button data-tab="conversations">Диалоги</button>
@@ -1659,6 +1695,137 @@ async function deleteVisitPhoto(bookingId, photoId) {
   document.getElementById("photos_list").innerHTML = renderVisitPhotosList(photos, bookingId);
 }
 
+// ---------- СВОДКА (отчёты, retention, реактивация) ----------
+const SUM_PERIODS = [
+  { key: "month", label: "Месяц", days: 30 },
+  { key: "quarter", label: "3 месяца", days: 91 },
+  { key: "half", label: "Полгода", days: 182 },
+  { key: "year", label: "Год", days: 365 },
+];
+let sumPeriod = "half";
+let dormantMonths = 6;
+let birthdayMonth = new Date().getMonth() + 1;
+
+function periodFrom(days) {
+  return todayStr(new Date(Date.now() - days * 864e5));
+}
+function money(n) {
+  return Math.round(n || 0).toLocaleString("ru-RU");
+}
+
+async function renderSummary() {
+  document.getElementById("fab").style.display = "none";
+  document.getElementById("content").innerHTML = `<div class="empty">Загрузка...</div>`;
+
+  const period = SUM_PERIODS.find(p => p.key === sumPeriod);
+  const [data, dormant, birthdays] = await Promise.all([
+    api(`/analytics?from=${periodFrom(period.days)}`),
+    api(`/clients/dormant?months=${dormantMonths}`),
+    api(`/clients/birthdays?month=${birthdayMonth}`),
+  ]);
+
+  const maxRev = Math.max(1, ...data.byMaster.map(m => m.revenue));
+  const maxDay = Math.max(1, ...data.byDay.map(d => d.revenue));
+  // Для длинных периодов дневные столбики сливаются — группируем по неделям
+  const series = period.days > 40 ? groupByWeek(data.byDay) : data.byDay.map(d => ({ label: d.day.slice(8), revenue: d.revenue, day: d.day }));
+  const maxSeries = Math.max(1, ...series.map(s => s.revenue));
+  const monthNames = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+
+  document.getElementById("content").innerHTML = `
+    <div class="seg">
+      ${SUM_PERIODS.map(p => `<button class="${p.key === sumPeriod ? "active" : ""}" onclick="setSumPeriod('${p.key}')">${p.label}</button>`).join("")}
+    </div>
+
+    <div class="sum-cards">
+      <div class="sum-card accent"><b>${money(data.totals.revenue)}</b><span>PLN выручка</span></div>
+      <div class="sum-card"><b>${data.totals.visits}</b><span>визитов</span></div>
+      <div class="sum-card"><b>${data.totals.active_clients}</b><span>клиентов</span></div>
+    </div>
+    <div class="sum-cards">
+      <div class="sum-card"><b>${data.retention.returning_clients || 0}</b><span>вернулись</span></div>
+      <div class="sum-card"><b>${data.retention.new_clients || 0}</b><span>новых</span></div>
+      <div class="sum-card"><b>${data.totals.active_clients ? Math.round((data.retention.returning_clients || 0) / data.totals.active_clients * 100) : 0}%</b><span>доля вернувшихся</span></div>
+    </div>
+
+    <h3 class="sum-title">Кто сколько заработал</h3>
+    ${data.byMaster.length ? data.byMaster.map(m => `
+      <div class="bar-row">
+        <div class="who"><span class="dot" style="background:${m.color || '#b8824f'}"></span>${m.name}</div>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${Math.max(4, m.revenue / maxRev * 100)}%;background:${m.color || '#b8824f'}"></div>
+          <span class="bar-val">${money(m.revenue)}</span>
+        </div>
+      </div>
+      <div class="bar-sub" style="margin:-4px 0 10px 102px">${m.visits} визитов · средний чек ${money(m.revenue / (m.visits || 1))}</div>
+    `).join("") : `<p class="empty">За период нет данных.</p>`}
+
+    <h3 class="sum-title">Выручка по ${period.days > 40 ? "неделям" : "дням"}</h3>
+    <div class="spark">
+      ${series.map(s => `<div class="col ${s.day === todayStr() ? "today" : ""}" title="${s.label}: ${money(s.revenue)} PLN">
+        <div class="fill" style="height:${s.revenue / maxSeries * 100}%"></div></div>`).join("")}
+    </div>
+    ${series.length ? `<div class="spark-labels"><span>${series[0].label}</span><span>${series[series.length-1].label}</span></div>` : ""}
+
+    <h3 class="sum-title">Давно не были — можно позвать</h3>
+    <div class="seg">
+      ${[3,6,12].map(m => `<button class="${m === dormantMonths ? "active" : ""}" onclick="setDormant(${m})">${m} мес+</button>`).join("")}
+    </div>
+    ${dormant.length ? dormant.slice(0, 40).map(c => `
+      <div class="lead" onclick="openClientById(${c.id})">
+        <div>
+          <div class="name">${c.full_name || "без имени"}</div>
+          <div class="meta">был ${c.last_visit.slice(0,10)} · всего ${c.visits}</div>
+        </div>
+        ${c.phone ? `<a class="call" href="tel:${c.phone}" onclick="event.stopPropagation()">${c.phone}</a>` : ""}
+      </div>
+    `).join("") : `<p class="empty">Таких клиентов нет — все заходили недавно 👍</p>`}
+    ${dormant.length > 40 ? `<p class="hint">Показаны первые 40 из ${dormant.length}.</p>` : ""}
+
+    <h3 class="sum-title">Дни рождения</h3>
+    <div class="seg">
+      <button class="cal-nav" onclick="setBirthdayMonth(${birthdayMonth === 1 ? 12 : birthdayMonth - 1})" style="border:none;background:none;color:var(--gold-mid)">‹</button>
+      <button class="active" style="pointer-events:none">${monthNames[birthdayMonth - 1]}</button>
+      <button class="cal-nav" onclick="setBirthdayMonth(${birthdayMonth === 12 ? 1 : birthdayMonth + 1})" style="border:none;background:none;color:var(--gold-mid)">›</button>
+    </div>
+    ${birthdays.length ? birthdays.map(c => `
+      <div class="lead" onclick="openClientById(${c.id})">
+        <div>
+          <div class="name">${c.full_name || "без имени"}</div>
+          <div class="meta">🎂 ${Number(c.birthday.slice(8,10))} ${monthNames[birthdayMonth - 1].toLowerCase()}</div>
+        </div>
+        ${c.phone ? `<a class="call" href="tel:${c.phone}" onclick="event.stopPropagation()">${c.phone}</a>` : ""}
+      </div>
+    `).join("") : `<p class="empty">В этом месяце именинников нет.</p>`}
+  `;
+}
+
+// Группировка дневных сумм в недельные для длинных периодов
+function groupByWeek(byDay) {
+  const weeks = [];
+  for (const d of byDay) {
+    const monday = new Date(d.day + "T00:00:00");
+    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7)); // к понедельнику
+    const key = todayStr(monday);
+    let w = weeks.find(x => x.key === key);
+    if (!w) { w = { key, label: key.slice(5), revenue: 0, day: key }; weeks.push(w); }
+    w.revenue += d.revenue;
+  }
+  return weeks;
+}
+
+function setSumPeriod(k) { sumPeriod = k; renderSummary(); }
+function setDormant(m) { dormantMonths = m; renderSummary(); }
+function setBirthdayMonth(m) { birthdayMonth = m; renderSummary(); }
+
+async function openClientById(id) {
+  const list = await api(`/clients?q=`);
+  let client = list.find(c => c.id === id);
+  if (!client) client = { id };
+  currentTab = "clients";
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === "clients"));
+  await openClientForm(client);
+}
+
 // ---------- ПРАВИЛА / ОГРАНИЧЕНИЯ ----------
 async function renderRules() {
   document.getElementById("fab").style.display = "block";
@@ -1855,6 +2022,7 @@ function render() {
   document.getElementById("content").innerHTML = `<div class="empty">Загрузка...</div>`;
   const renderers = {
     calendar: renderCalendar,
+    summary: renderSummary,
     services: renderServices,
     employees: renderEmployees,
     clients: renderClients,
