@@ -232,7 +232,13 @@ export async function handleApiRequest(request, env, path) {
   if (path === "/api/calendar" && method === "GET") {
     const date = url.searchParams.get("date");
     if (!date) return j({ error: "Нужна дата" }, 400);
+    // days=7 отдаёт сразу неделю — иначе недельный вид делал бы семь запросов
+    const days = Math.min(31, Math.max(1, Number(url.searchParams.get("days") || 1)));
     const weekday = new Date(date + "T00:00:00").getDay();
+
+    const last = new Date(date + "T00:00:00");
+    last.setDate(last.getDate() + days - 1);
+    const lastStr = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, "0")}-${String(last.getDate()).padStart(2, "0")}`;
 
     const { results: employees } = await db
       .prepare(
@@ -245,29 +251,58 @@ export async function handleApiRequest(request, env, path) {
       .bind(weekday, SALON_ID)
       .all();
 
+    // Полный график на все дни недели — нужен недельному виду
+    const { results: schedules } = await db
+      .prepare(
+        `SELECT s.employee_id, s.weekday, s.start_minutes, s.end_minutes
+         FROM employee_schedule s JOIN employees e ON e.id = s.employee_id
+         WHERE e.salon_id = ?`
+      )
+      .bind(SALON_ID)
+      .all();
+
     const { results: bookings } = await db
       .prepare(
         `SELECT b.id, b.employee_id, b.client_id, b.client_name, b.client_phone,
                 b.requested_datetime, b.end_datetime, b.custom_service_label,
-                b.charged_amount, b.comment, b.status, b.source,
-                sv.name AS service_name,
+                b.charged_amount, b.comment, b.status, b.source, b.service_id,
+                sv.name AS service_name, sv.price_min, sv.price_max,
                 COALESCE(sv.duration_max, sv.duration_min, 60) AS duration_minutes,
                 c.full_name AS client_full_name
          FROM bookings b
          LEFT JOIN services sv ON sv.id = b.service_id
          LEFT JOIN clients c ON c.id = b.client_id
-         WHERE b.requested_datetime LIKE ?
+         WHERE substr(b.requested_datetime,1,10) BETWEEN ? AND ?
          ORDER BY b.requested_datetime`
       )
-      .bind(`${date}%`)
+      .bind(date, lastStr)
       .all();
 
     const { results: timeOff } = await db
-      .prepare("SELECT employee_id, start_minutes, end_minutes, reason FROM employee_time_off WHERE date <= ? AND COALESCE(date_end, date) >= ?")
-      .bind(date, date)
+      .prepare(
+        `SELECT employee_id, date, date_end, start_minutes, end_minutes, reason
+         FROM employee_time_off WHERE date <= ? AND COALESCE(date_end, date) >= ?`
+      )
+      .bind(lastStr, date)
       .all();
 
-    return j({ date, weekday, employees, bookings, timeOff });
+    return j({ date, days, lastDay: lastStr, weekday, employees, schedules, bookings, timeOff });
+  }
+
+  // Быстрая смена статуса визита — не трогаем остальные поля записи
+  const statusMatch = path.match(/^\/api\/bookings\/(\d+)\/status$/);
+  if (statusMatch && method === "POST") {
+    const b = await request.json();
+    if (!b.status) return j({ error: "Нужен статус" }, 400);
+    if (b.charged_amount === undefined || b.charged_amount === null) {
+      await db.prepare("UPDATE bookings SET status=? WHERE id=?").bind(b.status, statusMatch[1]).run();
+    } else {
+      await db
+        .prepare("UPDATE bookings SET status=?, charged_amount=? WHERE id=?")
+        .bind(b.status, b.charged_amount, statusMatch[1])
+        .run();
+    }
+    return j({ ok: true });
   }
 
   // Счётчики для верхней плашки главного экрана

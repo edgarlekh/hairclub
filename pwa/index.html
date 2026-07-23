@@ -319,6 +319,28 @@
   .load-grid .b.quiet i { background: #cfc4b8; }
   .load-labels { display: flex; gap: 3px; margin-top: 4px; }
   .load-labels span { flex: 1; text-align: center; font-size: 10px; color: var(--muted); }
+
+  /* Переключатель День/Неделя */
+  .cal-view { display: inline-flex; background: var(--bg-soft); border: 1px solid var(--border);
+              border-radius: 999px; padding: 2px; gap: 2px; }
+  .cal-view button { border: none; background: none; border-radius: 999px; padding: 6px 12px;
+                     font-size: 13px; font-family: inherit; cursor: pointer; color: var(--muted); }
+  .cal-view button.active { background: white; color: var(--gold-1); font-weight: 600; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .cal-head.today-head { background: var(--gradient); color: white; }
+  .cal-head.today-head small { color: rgba(255,255,255,.85); }
+
+  /* Галочка «завершить» прямо на записи */
+  .ev-done { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; padding: 0;
+             border: none; border-radius: 6px; background: rgba(255,255,255,.28); color: #fff;
+             font-size: 12px; line-height: 20px; cursor: pointer; opacity: 0; transition: opacity .12s; }
+  .cal-ev:hover .ev-done { opacity: 1; }
+  .ev-done:hover { background: rgba(255,255,255,.5); }
+  @media (hover: none) { .ev-done { opacity: 1; } }  /* на телефоне наведения нет */
+
+  .qc-head { background: var(--bg-soft); border-radius: 10px; padding: 11px 13px; margin-bottom: 14px; }
+  .qc-head .name { font-weight: 600; font-size: 15px; }
+  .qc-head .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  #qc_amount { font-size: 22px; font-weight: 600; text-align: center; padding: 14px; }
 </style>
 </head>
 <body>
@@ -881,6 +903,7 @@ const CAL_ROW_H = 44;        // высота одного часа в пиксе
 const CAL_MIN_H = 18;        // минимальная высота блока, чтобы короткая запись читалась
 let calDate = todayStr();
 let calFilterEmployee = null; // null = все мастера; иначе id одного выбранного
+let calView = "day";          // day = колонки по мастерам, week = колонки по дням
 
 // Запасная палитра, если у мастера ещё не задан цвет
 const CAL_PALETTE = ["#b8824f", "#7c9473", "#9c6b8e", "#6b8ea4", "#c08552", "#8a7a9c"];
@@ -904,7 +927,24 @@ function minutesOfDay(dt) {
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 }
 
+// Понедельник недели, в которую попадает дата
+function weekStart(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return todayStr(d);
+}
+function setCalView(v) { calView = v; renderCalendar(); }
+
+function calViewToggle() {
+  return `<div class="cal-view">
+    <button class="${calView === "day" ? "active" : ""}" onclick="setCalView('day')">День</button>
+    <button class="${calView === "week" ? "active" : ""}" onclick="setCalView('week')">Неделя</button>
+  </div>`;
+}
+
 async function renderCalendar() {
+  if (calView === "week") return renderCalendarWeek();
+
   document.getElementById("fab").style.display = "block";
   document.getElementById("fab").onclick = () => openVisitForm({ requested_datetime: `${calDate}T10:00` });
 
@@ -963,6 +1003,7 @@ async function renderCalendar() {
       <input type="date" id="cal_date" value="${calDate}" onchange="calSet(this.value)">
       <button class="cal-nav" onclick="calShift(1)" title="Следующий день">›</button>
       <button class="cal-today" onclick="calSet('${todayStr()}')">Сегодня</button>
+      ${calViewToggle()}
       <div class="spacer"></div>
       <div class="cal-title">${isToday ? "Сегодня" : dayNames[d.getDay()]}
         <span>${d.getDate()} ${["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"][d.getMonth()]}</span>
@@ -1054,12 +1095,225 @@ function renderCalColumn(emp, data, { from, to, gridH, posOf, isToday, color }) 
                             background:${bg}"
                      onclick='event.stopPropagation(); openVisitForm(${JSON.stringify(b).replace(/'/g, "&#39;")})' title="${fmtMinutes(s)}–${fmtMinutes(e)} · ${name} · ${label}">
                   <b>${fmtMinutes(s)} ${name}</b><i>${label}</i>
+                  ${!muted && !done ? `<button class="ev-done" title="Завершить визит"
+                     onclick='event.stopPropagation(); openQuickComplete(${JSON.stringify(b).replace(/'/g, "&#39;")})'>✓</button>` : ""}
                 </div>`;
       }).join("")}
 
       ${isToday && nowMin > from && nowMin < to
         ? `<div class="cal-now" style="top:${posOf(nowMin)}px"></div>` : ""}
     </div>`;
+}
+
+// ---------- НЕДЕЛЬНЫЙ ВИД: колонки — дни, цвет блока — мастер ----------
+async function renderCalendarWeek() {
+  document.getElementById("fab").style.display = "block";
+  const start = weekStart(calDate);
+  document.getElementById("fab").onclick = () => openVisitForm({ requested_datetime: `${start}T10:00` });
+
+  const data = await api(`/calendar?date=${start}&days=7`);
+
+  const colorById = {};
+  data.employees.forEach((e, i) => { colorById[e.id] = empColor(e, i); });
+  const nameById = {};
+  data.employees.forEach(e => { nameById[e.id] = e.name; });
+
+  // Фильтр по мастеру работает и здесь
+  const bookings = calFilterEmployee
+    ? data.bookings.filter(b => b.employee_id === calFilterEmployee)
+    : data.bookings;
+
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const dateStr = shiftDate(start, i);
+    const wd = new Date(dateStr + "T00:00:00").getDay();
+    const sched = (data.schedules || []).filter(s =>
+      s.weekday === wd && (!calFilterEmployee || s.employee_id === calFilterEmployee));
+    days.push({
+      date: dateStr,
+      weekday: wd,
+      open: sched.length ? Math.min(...sched.map(s => s.start_minutes)) : null,
+      close: sched.length ? Math.max(...sched.map(s => s.end_minutes)) : null,
+      events: bookings.filter(b => b.requested_datetime.slice(0, 10) === dateStr),
+      offs: (data.timeOff || []).filter(t =>
+        t.date <= dateStr && (t.date_end || t.date) >= dateStr &&
+        (!calFilterEmployee || t.employee_id === calFilterEmployee)),
+    });
+  }
+
+  // Границы сетки — по всем дням недели сразу, чтобы колонки были выровнены
+  let from = 24 * 60, to = 0;
+  for (const day of days) {
+    if (day.open != null) { from = Math.min(from, day.open); to = Math.max(to, day.close); }
+    for (const b of day.events) {
+      const s = minutesOfDay(b.requested_datetime);
+      if (s == null) continue;
+      to = Math.max(to, minutesOfDay(b.end_datetime) ?? s + (b.duration_minutes || 60));
+      from = Math.min(from, s);
+    }
+  }
+  if (from >= to) { from = 9 * 60; to = 20 * 60; }
+  from = Math.floor(from / 60) * 60;
+  to = Math.ceil(to / 60) * 60;
+
+  const hours = [];
+  for (let m = from; m < to; m += 60) hours.push(m);
+  const gridH = ((to - from) / 60) * CAL_ROW_H;
+  const posOf = (min) => ((min - from) / 60) * CAL_ROW_H;
+
+  const live = bookings.filter(b => !["cancelled", "no_show"].includes(b.status));
+  const revenue = live.reduce((s, b) => s + (b.charged_amount || 0), 0);
+  const WD_SHORT = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+  const MON = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
+  const endDate = new Date(days[6].date + "T00:00:00");
+  const startDate = new Date(start + "T00:00:00");
+
+  document.getElementById("content").innerHTML = `
+    <div class="cal-bar">
+      <button class="cal-nav" onclick="calShift(-7)" title="Предыдущая неделя">‹</button>
+      <input type="date" id="cal_date" value="${calDate}" onchange="calSet(this.value)">
+      <button class="cal-nav" onclick="calShift(7)" title="Следующая неделя">›</button>
+      <button class="cal-today" onclick="calSet('${todayStr()}')">Эта неделя</button>
+      ${calViewToggle()}
+      <div class="spacer"></div>
+      <div class="cal-title">Неделя
+        <span>${startDate.getDate()} ${MON[startDate.getMonth()]} — ${endDate.getDate()} ${MON[endDate.getMonth()]}</span>
+      </div>
+    </div>
+
+    <div class="cal-stats">
+      <div class="cal-stat"><b>${live.length}</b><span>записей за неделю</span></div>
+      <div class="cal-stat"><b>${revenue ? Math.round(revenue).toLocaleString("ru-RU") : "—"}</b><span>PLN</span></div>
+      <div class="cal-stat"><b>${new Set(live.map(b => b.client_id).filter(Boolean)).size}</b><span>клиентов</span></div>
+    </div>
+
+    <div class="cal-picker">
+      <button class="${!calFilterEmployee ? "active" : ""}" onclick="calPickEmployee(null)">Все</button>
+      ${data.employees.map((e, i) => `
+        <button class="${e.id === calFilterEmployee ? "active" : ""}" onclick="calPickEmployee(${e.id})">
+          <span class="dot" style="background:${empColor(e, i)}"></span>${e.name}
+        </button>`).join("")}
+    </div>
+
+    <div class="cal-wrap"><div class="cal-scroll">
+      <div class="cal-grid" style="grid-template-columns: 46px repeat(7, minmax(96px, 1fr));">
+        <div class="cal-head corner"></div>
+        ${days.map(day => {
+          const dd = new Date(day.date + "T00:00:00");
+          const isT = day.date === todayStr();
+          return `<div class="cal-head${isT ? " today-head" : ""}">${WD_SHORT[day.weekday]} ${dd.getDate()}
+            <small>${day.open != null ? day.events.length + " зап." : "выходной"}</small>
+          </div>`;
+        }).join("")}
+
+        <div class="cal-time" style="height:${gridH}px">
+          ${hours.map(h => `<div style="height:${CAL_ROW_H}px">${fmtMinutes(h)}</div>`).join("")}
+        </div>
+
+        ${days.map(day => renderWeekColumn(day, { from, to, gridH, posOf, colorById, nameById })).join("")}
+      </div>
+    </div></div>
+  `;
+
+  const scroller = document.querySelector(".cal-scroll");
+  if (scroller) {
+    const now = new Date().getHours() * 60 + new Date().getMinutes();
+    if (now > from && now < to) scroller.scrollTop = Math.max(0, posOf(now) - 80);
+  }
+}
+
+function renderWeekColumn(day, { from, to, gridH, posOf, colorById, nameById }) {
+  const isToday = day.date === todayStr();
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+
+  const offBlocks = [];
+  if (day.open == null) offBlocks.push({ start: from, end: to });
+  else {
+    if (day.open > from) offBlocks.push({ start: from, end: day.open });
+    if (day.close < to) offBlocks.push({ start: day.close, end: to });
+  }
+
+  return `
+    <div class="cal-col" style="height:${gridH}px" onclick="calWeekClick(event, '${day.date}', ${from})">
+      ${offBlocks.map(o => `<div class="cal-off" style="position:absolute;left:0;right:0;top:${posOf(o.start)}px;height:${posOf(o.end) - posOf(o.start)}px"></div>`).join("")}
+      ${Array.from({ length: (to - from) / 60 }, (_, i) => `
+        <div class="cal-hour" style="position:absolute;left:0;right:0;top:${i * CAL_ROW_H}px;height:${CAL_ROW_H}px">
+          <div class="cal-half" style="height:${CAL_ROW_H / 2}px"></div>
+        </div>`).join("")}
+
+      ${day.offs.map(t => {
+        const s = t.start_minutes ?? from, e = t.end_minutes ?? to;
+        return `<div class="cal-ev off" onclick="event.stopPropagation()" style="top:${posOf(s)}px;height:${Math.max(CAL_MIN_H, posOf(e) - posOf(s))}px">
+                  <b>${nameById[t.employee_id] || ""}: ${t.reason || "не работает"}</b></div>`;
+      }).join("")}
+
+      ${layoutEvents(day.events).map(({ b, s, e, lane, lanes }) => {
+        const muted = ["cancelled", "no_show"].includes(b.status);
+        const done = b.status === "completed";
+        const color = colorById[b.employee_id] || "#b8824f";
+        const name = b.client_full_name || b.client_name || "Без имени";
+        const label = b.custom_service_label || b.service_name || "";
+        const w = 100 / lanes;
+        const bg = muted ? "#c9c2ba" : done ? color + "cc" : color;
+        return `<div class="cal-ev${muted ? " cancelled" : ""}"
+                     style="top:${posOf(s)}px;height:${Math.max(CAL_MIN_H, posOf(e) - posOf(s))}px;
+                            left:calc(${lane * w}% + 2px); right:auto; width:calc(${w}% - 4px); background:${bg}"
+                     onclick='event.stopPropagation(); openVisitForm(${JSON.stringify(b).replace(/'/g, "&#39;")})'
+                     title="${fmtMinutes(s)}–${fmtMinutes(e)} · ${name} · ${label} · ${nameById[b.employee_id] || ""}">
+                  <b>${fmtMinutes(s)} ${name}</b><i>${label}</i>
+                  ${!muted && !done ? `<button class="ev-done" title="Завершить визит"
+                     onclick='event.stopPropagation(); openQuickComplete(${JSON.stringify(b).replace(/'/g, "&#39;")})'>✓</button>` : ""}
+                </div>`;
+      }).join("")}
+
+      ${isToday && nowMin > from && nowMin < to ? `<div class="cal-now" style="top:${posOf(nowMin)}px"></div>` : ""}
+    </div>`;
+}
+
+function calWeekClick(event, dateStr, from) {
+  const col = event.currentTarget;
+  const y = event.clientY - col.getBoundingClientRect().top;
+  let minutes = from + Math.round((y / CAL_ROW_H * 60) / 30) * 30;
+  minutes = Math.max(0, Math.min(23 * 60 + 30, minutes));
+  openVisitForm({ requested_datetime: `${dateStr}T${fmtMinutes(minutes)}`, employee_id: calFilterEmployee || null });
+}
+
+// ---------- БЫСТРОЕ ЗАВЕРШЕНИЕ ВИЗИТА ----------
+function openQuickComplete(b) {
+  const name = b.client_full_name || b.client_name || "Клиент";
+  const label = b.custom_service_label || b.service_name || "";
+  // Подставляем сумму: уже вписанную, иначе цену услуги из каталога
+  const suggested = b.charged_amount || b.price_min || b.price_max || "";
+  openModal(`
+    <h2>Завершить визит</h2>
+    <div class="qc-head">
+      <div class="name">${name}</div>
+      <div class="meta">${(b.requested_datetime || "").slice(11, 16)} · ${label}</div>
+    </div>
+    <label>Сумма (PLN)</label>
+    <input id="qc_amount" type="number" inputmode="numeric" value="${suggested}" autofocus>
+    ${b.price_min && b.price_max && b.price_min !== b.price_max
+      ? `<div class="quick-days">
+           ${[b.price_min, Math.round((b.price_min + b.price_max) / 2), b.price_max]
+             .filter((v, i, a) => a.indexOf(v) === i)
+             .map(v => `<button type="button" onclick="document.getElementById('qc_amount').value=${v}">${v}</button>`).join("")}
+         </div>` : ""}
+    <div class="form-actions">
+      <button class="btn-secondary" onclick="quickStatus(${b.id}, 'no_show')">Не пришёл</button>
+      <button class="btn-primary" onclick="quickStatus(${b.id}, 'completed')">Завершить</button>
+    </div>
+  `);
+  setTimeout(() => document.getElementById("qc_amount")?.select(), 50);
+}
+
+async function quickStatus(id, status) {
+  const raw = document.getElementById("qc_amount")?.value;
+  const payload = { status };
+  // «Не пришёл» — денег нет, сумму не пишем
+  if (status === "completed" && raw !== "" && raw != null) payload.charged_amount = parseFloat(raw);
+  await api(`/bookings/${id}/status`, { method: "POST", body: JSON.stringify(payload) });
+  closeModal();
+  renderCalendar();
 }
 
 // Клик по свободному месту колонки → новая запись этому мастеру на это время
