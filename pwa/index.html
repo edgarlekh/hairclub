@@ -96,6 +96,17 @@
     font-size: 14px; font-family: inherit; background: var(--bg);
   }
   input:focus, textarea:focus, select:focus { outline: none; border-color: var(--gold-2); background: white; }
+  /* Галочки и радио не должны растягиваться на всю ширину, как текстовые поля */
+  input[type="checkbox"], input[type="radio"] {
+    width: 18px; height: 18px; padding: 0; accent-color: var(--gold-1); cursor: pointer; flex: none;
+  }
+  /* Понятный переключатель-строка: галочка + название + пояснение, всё в рамке */
+  .check { display: flex; align-items: flex-start; gap: 11px; padding: 12px 13px; margin: 12px 0;
+           border: 1px solid var(--border); border-radius: 10px; cursor: pointer; background: white; }
+  .check:hover { border-color: var(--gold-2); }
+  .check input { margin-top: 1px; }
+  .check .t { font-size: 14px; color: var(--text); font-weight: 500; }
+  .check .t small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); margin-top: 2px; }
   .row { display: flex; gap: 10px; }
   .row > * { flex: 1; }
   .btn-primary {
@@ -403,7 +414,12 @@ function openServiceForm(service = {}) {
       <div><label>Время до (мин)</label><input id="f_dur_max" type="number" value="${service.duration_max ?? ""}"></div>
     </div>
     <p class="hint">Если время и цена фиксированные — заполни только «от», «до» оставь пустым.</p>
-    <label><input type="checkbox" id="f_active" ${service.active === 0 ? "" : "checked"}> Показывать в записи</label>
+    <label class="check">
+      <input type="checkbox" id="f_active" ${service.active === 0 ? "" : "checked"}>
+      <span class="t">Доступна для онлайн-записи
+        <small>Клиенты видят эту услугу на сайте записи. Снимите галочку — останется только в панели.</small>
+      </span>
+    </label>
     <label>Описание (для AI-агента — что важно знать об услуге)</label>
     <textarea id="f_desc" rows="3">${service.description || ""}</textarea>
     <button class="btn-primary" onclick="saveService(${service.id || "null"})">Сохранить</button>
@@ -1081,18 +1097,36 @@ async function openClientForm(clientLite = {}) {
   openModal(`
     <h2>Новый клиент</h2>
     <label>Имя и фамилия</label>
-    <input id="c_new_name">
+    <input id="c_new_name" placeholder="Как зовут клиента">
     <label>Телефон</label>
-    <input id="c_new_phone">
-    <button class="btn-primary" onclick="createClient()">Сохранить</button>
+    <input id="c_new_phone" placeholder="+48 ...">
+    <div class="row">
+      <div><label>Email</label><input id="c_new_email" placeholder="необязательно"></div>
+      <div><label>День рождения</label><input id="c_new_birthday" type="date"></div>
+    </div>
+    <label>Адрес</label>
+    <input id="c_new_address" placeholder="необязательно">
+    <label>Комментарий</label>
+    <textarea id="c_new_comment" rows="3" placeholder="аллергии, пожелания, откуда пришёл — что важно помнить"></textarea>
+    <div class="form-actions">
+      <button class="btn-secondary" onclick="closeModal()">Отмена</button>
+      <button class="btn-primary" onclick="createClient()">Сохранить</button>
+    </div>
   `);
 }
 
 async function createClient() {
   const full_name = document.getElementById("c_new_name").value.trim();
-  const phone = document.getElementById("c_new_phone").value.trim();
   if (!full_name) { alert("Укажи имя"); return; }
-  await api("/clients", { method: "POST", body: JSON.stringify({ full_name, phone }) });
+  const payload = {
+    full_name,
+    phone: document.getElementById("c_new_phone").value.trim(),
+    email: document.getElementById("c_new_email").value.trim(),
+    birthday: document.getElementById("c_new_birthday").value,
+    address: document.getElementById("c_new_address").value.trim(),
+    comment: document.getElementById("c_new_comment").value.trim(),
+  };
+  await api("/clients", { method: "POST", body: JSON.stringify(payload) });
   closeModal();
   renderClients();
 }
