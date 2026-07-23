@@ -469,7 +469,41 @@ export async function handleApiRequest(request, env, path) {
       .bind(from, to)
       .all();
 
-    return j({ from, totals, retention, byMaster, byDay });
+    // Что приносит деньги: у перенесённых визитов услуга записана текстом,
+    // поэтому берём название из каталога, а если его нет — из подписи визита.
+    const { results: byService } = await db
+      .prepare(
+        `SELECT COALESCE(sv.name, b.custom_service_label, 'Без названия') AS name,
+                COUNT(*) AS visits,
+                COALESCE(SUM(b.charged_amount),0) AS revenue
+         FROM bookings b LEFT JOIN services sv ON sv.id = b.service_id
+         WHERE b.${inPeriod}
+         GROUP BY 1 ORDER BY revenue DESC LIMIT 15`
+      )
+      .bind(from, to)
+      .all();
+
+    // Загруженность: в какие часы и дни недели приходят
+    const { results: byHour } = await db
+      .prepare(
+        `SELECT CAST(substr(requested_datetime,12,2) AS INTEGER) AS hour, COUNT(*) AS visits
+         FROM bookings WHERE ${inPeriod} GROUP BY hour ORDER BY hour`
+      )
+      .bind(from, to)
+      .all();
+
+    // strftime('%w') даёт 0=воскресенье — совпадает с Date.getDay() в панели
+    const { results: byWeekday } = await db
+      .prepare(
+        `SELECT CAST(strftime('%w', substr(requested_datetime,1,10)) AS INTEGER) AS weekday,
+                COUNT(*) AS visits,
+                COALESCE(SUM(charged_amount),0) AS revenue
+         FROM bookings WHERE ${inPeriod} GROUP BY weekday ORDER BY weekday`
+      )
+      .bind(from, to)
+      .all();
+
+    return j({ from, totals, retention, byMaster, byDay, byService, byHour, byWeekday });
   }
 
   // Клиенты, которые давно не приходили — кандидаты на «вернитесь»
@@ -532,7 +566,19 @@ export async function handleApiRequest(request, env, path) {
   if (clientMatch && method === "GET") {
     const client = await db.prepare("SELECT * FROM clients WHERE id = ?").bind(clientMatch[1]).first();
     if (!client) return j({ error: "Клиент не найден" }, 404);
-    return j(client);
+
+    // Последняя формула — чтобы мастер видел её сразу, не листая историю визитов
+    const lastFormula = await db
+      .prepare(
+        `SELECT b.formula, b.requested_datetime, e.name AS employee_name
+         FROM bookings b LEFT JOIN employees e ON e.id = b.employee_id
+         WHERE b.client_id = ? AND b.formula IS NOT NULL AND TRIM(b.formula) != ''
+         ORDER BY b.requested_datetime DESC LIMIT 1`
+      )
+      .bind(clientMatch[1])
+      .first();
+
+    return j({ ...client, last_formula: lastFormula || null });
   }
   if (clientMatch && method === "PUT") {
     const b = await request.json();
@@ -603,8 +649,8 @@ export async function handleApiRequest(request, env, path) {
     }
     const result = await db
       .prepare(
-        `INSERT INTO bookings (client_id, service_id, employee_id, client_name, client_phone, requested_datetime, end_datetime, custom_service_label, charged_amount, comment, status, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual') RETURNING id`
+        `INSERT INTO bookings (client_id, service_id, employee_id, client_name, client_phone, requested_datetime, end_datetime, custom_service_label, charged_amount, comment, formula, status, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual') RETURNING id`
       )
       .bind(
         clientId,
@@ -617,6 +663,7 @@ export async function handleApiRequest(request, env, path) {
         b.custom_service_label || null,
         b.charged_amount || null,
         b.comment || null,
+        b.formula || null,
         b.status || "completed"
       )
       .first();
@@ -627,7 +674,7 @@ export async function handleApiRequest(request, env, path) {
     const b = await request.json();
     await db
       .prepare(
-        `UPDATE bookings SET service_id=?, employee_id=?, requested_datetime=?, end_datetime=?, custom_service_label=?, charged_amount=?, comment=?, status=? WHERE id=?`
+        `UPDATE bookings SET service_id=?, employee_id=?, requested_datetime=?, end_datetime=?, custom_service_label=?, charged_amount=?, comment=?, formula=?, status=? WHERE id=?`
       )
       .bind(
         b.service_id || null,
@@ -637,6 +684,7 @@ export async function handleApiRequest(request, env, path) {
         b.custom_service_label || null,
         b.charged_amount || null,
         b.comment || null,
+        b.formula || null,
         b.status || "completed",
         bookingMatch[1]
       )

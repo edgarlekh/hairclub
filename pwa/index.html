@@ -303,6 +303,22 @@
   .lead .name { font-weight: 600; font-size: 14px; }
   .lead .meta { font-size: 12px; color: var(--muted); }
   .lead a.call { font-size: 13px; font-weight: 600; color: var(--gold-mid); text-decoration: none; white-space: nowrap; }
+
+  /* Формула прошлой работы — закреплена вверху карточки клиента */
+  .formula-box { background: var(--bg-soft); border: 1px solid var(--gold-2); border-radius: 12px;
+                 padding: 11px 13px; margin-bottom: 14px; }
+  .formula-head { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--gold-mid);
+                  font-weight: 700; display: flex; justify-content: space-between; gap: 10px; margin-bottom: 5px; }
+  .formula-head span { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--muted); }
+  .formula-body { font-size: 14px; line-height: 1.4; white-space: pre-wrap; }
+
+  /* Загруженность по часам и дням недели */
+  .load-grid { display: flex; gap: 3px; align-items: flex-end; height: 70px; }
+  .load-grid .b { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+  .load-grid .b i { display: block; background: var(--gold-2); border-radius: 3px 3px 0 0; min-height: 2px; }
+  .load-grid .b.quiet i { background: #cfc4b8; }
+  .load-labels { display: flex; gap: 3px; margin-top: 4px; }
+  .load-labels span { flex: 1; text-align: center; font-size: 10px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -1169,8 +1185,16 @@ async function createClient() {
 
 function renderClientCard() {
   const c = currentClient;
+  const f = c.last_formula;
   openModal(`
     <h2>${c.full_name}</h2>
+    ${f && f.formula ? `
+      <div class="formula-box">
+        <div class="formula-head">Формула прошлой работы
+          <span>${(f.requested_datetime || "").slice(0, 10)}${f.employee_name ? " · " + f.employee_name : ""}</span>
+        </div>
+        <div class="formula-body">${f.formula}</div>
+      </div>` : ""}
     <div style="display:flex; gap:16px; margin-bottom:14px; border-bottom:1px solid var(--border); padding-bottom:10px;">
       <button class="link-btn" id="tab_profile_btn" onclick="switchClientTab('profile')">Профиль</button>
       <button class="link-btn" id="tab_visits_btn" onclick="switchClientTab('visits')">Записи</button>
@@ -1425,8 +1449,12 @@ function renderVisitFormBody() {
       </div>
     </div>
 
+    <label>Формула работы</label>
+    <textarea id="v_formula" rows="3" placeholder="чем красили, пропорции, сколько грамм, состав кератина">${b.formula || ""}</textarea>
+    <p class="hint">Последняя формула закрепится вверху карточки клиента — не придётся листать историю.</p>
+
     <label>Комментарий</label>
-    <textarea id="v_comment" rows="3">${b.comment || ""}</textarea>
+    <textarea id="v_comment" rows="3" placeholder="пожелания, опоздания, что помнить о визите">${b.comment || ""}</textarea>
 
     ${isEdit ? `<button class="link-btn" onclick='openVisitPhotos(${attrJson(b)})'>Фото визита →</button>` : ""}
     ${isEdit ? `<button class="btn-secondary" onclick="deleteVisit(${st.id})">Удалить запись</button>` : ""}
@@ -1446,6 +1474,7 @@ function visitServiceChanged() {
   if (svc) visitFormState.duration = svc.duration_max || svc.duration_min || 60;
   visitFormState.booking.custom_service_label = document.getElementById("v_label").value;
   visitFormState.booking.comment = document.getElementById("v_comment").value;
+  visitFormState.booking.formula = document.getElementById("v_formula").value;
   renderVisitFormBody();
 }
 
@@ -1502,6 +1531,7 @@ async function saveVisit() {
     charged_amount: parseFloat(document.getElementById("v_amount").value) || null,
     status: document.getElementById("v_status").value,
     comment: document.getElementById("v_comment").value,
+    formula: document.getElementById("v_formula").value,
   };
 
   if (st.id) {
@@ -1725,6 +1755,26 @@ async function renderSummary() {
   ]);
 
   const maxRev = Math.max(1, ...data.byMaster.map(m => m.revenue));
+  const maxService = Math.max(1, ...(data.byService || []).map(s => s.revenue));
+
+  // Часы показываем сплошным диапазоном, включая пустые — иначе провалы не видно
+  const hours = (data.byHour || []);
+  const hFrom = hours.length ? Math.min(...hours.map(h => h.hour)) : 9;
+  const hTo = hours.length ? Math.max(...hours.map(h => h.hour)) : 20;
+  const hourSeries = [];
+  for (let h = hFrom; h <= hTo; h++) {
+    hourSeries.push({ hour: h, visits: (hours.find(x => x.hour === h) || {}).visits || 0 });
+  }
+  const maxHour = Math.max(1, ...hourSeries.map(h => h.visits));
+  const quietHour = maxHour * 0.35; // тихими считаем всё ниже трети от пика
+
+  const WD = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+  const weekdaySeries = [1, 2, 3, 4, 5, 6, 0].map(n => {
+    const row = (data.byWeekday || []).find(w => w.weekday === n) || {};
+    return { name: WD[n], visits: row.visits || 0, revenue: row.revenue || 0 };
+  });
+  const maxWeekday = Math.max(1, ...weekdaySeries.map(w => w.visits));
+  const quietDay = maxWeekday * 0.35;
   const maxDay = Math.max(1, ...data.byDay.map(d => d.revenue));
   // Для длинных периодов дневные столбики сливаются — группируем по неделям
   const series = period.days > 40 ? groupByWeek(data.byDay) : data.byDay.map(d => ({ label: d.day.slice(8), revenue: d.revenue, day: d.day }));
@@ -1765,6 +1815,33 @@ async function renderSummary() {
         <div class="fill" style="height:${s.revenue / maxSeries * 100}%"></div></div>`).join("")}
     </div>
     ${series.length ? `<div class="spark-labels"><span>${series[0].label}</span><span>${series[series.length-1].label}</span></div>` : ""}
+
+    <h3 class="sum-title">Что приносит деньги</h3>
+    ${(data.byService || []).length ? data.byService.slice(0, 8).map(s => `
+      <div class="bar-row">
+        <div class="who" style="width:140px" title="${s.name}">${s.name}</div>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${Math.max(4, s.revenue / maxService * 100)}%;background:var(--gold-2)"></div>
+          <span class="bar-val">${money(s.revenue)}</span>
+        </div>
+      </div>
+      <div class="bar-sub" style="margin:-4px 0 10px 150px">${s.visits} раз · средний чек ${money(s.revenue / (s.visits || 1))}</div>
+    `).join("") : `<p class="empty">За период нет данных.</p>`}
+
+    <h3 class="sum-title">Загруженность по часам</h3>
+    <div class="load-grid">
+      ${hourSeries.map(h => `<div class="b ${h.visits <= quietHour ? "quiet" : ""}" title="${h.hour}:00 — ${h.visits} визитов">
+        <i style="height:${h.visits / maxHour * 100}%"></i></div>`).join("")}
+    </div>
+    <div class="load-labels">${hourSeries.map(h => `<span>${h.hour % 3 === 0 ? h.hour : ""}</span>`).join("")}</div>
+    <p class="hint">Серым — самые тихие часы. Под них удобно ставить акции.</p>
+
+    <h3 class="sum-title">Загруженность по дням недели</h3>
+    <div class="load-grid">
+      ${weekdaySeries.map(w => `<div class="b ${w.visits <= quietDay ? "quiet" : ""}" title="${w.name}: ${w.visits} визитов, ${money(w.revenue)} PLN">
+        <i style="height:${w.visits / maxWeekday * 100}%"></i></div>`).join("")}
+    </div>
+    <div class="load-labels">${weekdaySeries.map(w => `<span>${w.name}</span>`).join("")}</div>
 
     <h3 class="sum-title">Давно не были — можно позвать</h3>
     <div class="seg">
