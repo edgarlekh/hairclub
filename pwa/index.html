@@ -319,6 +319,16 @@
   .load-grid .b.quiet i { background: #cfc4b8; }
   .load-labels { display: flex; gap: 3px; margin-top: 4px; }
   .load-labels span { flex: 1; text-align: center; font-size: 10px; color: var(--muted); }
+  .load-labels span b { display: block; font-size: 11px; color: var(--text); font-weight: 600; }
+  .load-grid .b { cursor: pointer; }
+  .load-grid .b.picked i { background: var(--gold-1); }
+  .spark .col { cursor: pointer; }
+  .spark .col.picked .fill { background: var(--gold-1); }
+  /* Строка со значением выбранного столбика — вместо всплывающей подсказки,
+     которой нет на телефоне */
+  .chart-readout { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 8px;
+                   padding: 7px 11px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .chart-readout b { color: var(--gold-1); font-family: var(--font-heading); font-size: 15px; }
 
   /* Переключатель День/Неделя */
   .cal-view { display: inline-flex; background: var(--bg-soft); border: 1px solid var(--border);
@@ -341,6 +351,53 @@
   .qc-head .name { font-weight: 600; font-size: 15px; }
   .qc-head .meta { font-size: 13px; color: var(--muted); margin-top: 2px; }
   #qc_amount { font-size: 22px; font-weight: 600; text-align: center; padding: 14px; }
+
+  /* ---------- НЕДЕЛЯ: колонки-списки ---------- */
+  /* Дни переносятся сами: при 7 жёстких колонках на узком экране колонка
+     сжималась до 90px и текст резался. minmax не даёт колонке стать уже 190px. */
+  .wk { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; align-items: start; }
+  .wk-day { background: white; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .wk-day.today { border-color: var(--gold-2); box-shadow: 0 0 0 2px rgba(200,150,90,.18); }
+  .wk-day.off { background: var(--bg-soft); }
+  .wk-head { padding: 9px 10px; border-bottom: 1px solid var(--border); background: var(--bg-soft); }
+  .wk-day.today .wk-head { background: var(--gradient); color: white; }
+  .wk-date { font-size: 11px; color: var(--muted); text-transform: capitalize; line-height: 1.2; }
+  .wk-date b { display: block; font-family: var(--font-heading); font-size: 15px; color: var(--text); font-weight: 600; }
+  .wk-day.today .wk-date, .wk-day.today .wk-date b, .wk-day.today .wk-sum { color: white; }
+  .wk-sum { font-size: 11px; color: var(--gold-mid); font-weight: 600; margin-top: 3px; }
+  .wk-list { padding: 7px; display: flex; flex-direction: column; gap: 6px; }
+
+  .wk-ev { position: relative; display: flex; gap: 8px; align-items: flex-start;
+           border: 1px solid var(--border); border-left: 4px solid var(--gold-2);
+           border-radius: 9px; padding: 7px 8px; cursor: pointer; background: white; }
+  .wk-ev:hover { border-color: var(--gold-2); box-shadow: 0 2px 8px rgba(0,0,0,.07); }
+  .wk-ev.done { background: var(--bg-soft); }
+  .wk-ev.cancelled { opacity: .55; }
+  .wk-ev.cancelled .wk-name { text-decoration: line-through; }
+  .wk-time { font-size: 13px; font-weight: 700; white-space: nowrap; line-height: 1.25; }
+  .wk-time small { display: block; font-size: 10px; font-weight: 400; color: var(--muted); }
+  .wk-body { min-width: 0; flex: 1; }
+  .wk-name { font-size: 13px; font-weight: 600; line-height: 1.25; }
+  .wk-serv { font-size: 11px; color: var(--muted); line-height: 1.3; margin-top: 1px; }
+  .wk-master { font-size: 10px; color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: 4px; }
+  .wk-master .dot { width: 7px; height: 7px; }
+  .wk-done { position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; padding: 0;
+             border: 1px solid var(--border); border-radius: 6px; background: white; color: var(--gold-mid);
+             font-size: 12px; cursor: pointer; }
+  .wk-done:hover { background: var(--gradient); color: white; border-color: transparent; }
+  .wk-off { font-size: 11px; color: var(--muted); background: var(--bg-soft);
+            border: 1px dashed var(--border); border-radius: 8px; padding: 6px 8px; }
+  .wk-add { border: 1px dashed var(--border); background: none; border-radius: 8px; padding: 7px;
+            font-size: 12px; color: var(--muted); cursor: pointer; font-family: inherit; }
+  .wk-add:hover { border-color: var(--gold-2); color: var(--gold-mid); }
+
+  /* На телефоне день занимает всю ширину, а шапка становится одной строкой */
+  @media (max-width: 560px) {
+    .wk { grid-template-columns: 1fr; gap: 10px; }
+    .wk-head { display: flex; justify-content: space-between; align-items: center; }
+    .wk-date b { display: inline; margin-left: 6px; }
+    .wk-sum { margin: 0; }
+  }
 </style>
 </head>
 <body>
@@ -1141,29 +1198,8 @@ async function renderCalendarWeek() {
     });
   }
 
-  // Границы сетки — по всем дням недели сразу, чтобы колонки были выровнены
-  let from = 24 * 60, to = 0;
-  for (const day of days) {
-    if (day.open != null) { from = Math.min(from, day.open); to = Math.max(to, day.close); }
-    for (const b of day.events) {
-      const s = minutesOfDay(b.requested_datetime);
-      if (s == null) continue;
-      to = Math.max(to, minutesOfDay(b.end_datetime) ?? s + (b.duration_minutes || 60));
-      from = Math.min(from, s);
-    }
-  }
-  if (from >= to) { from = 9 * 60; to = 20 * 60; }
-  from = Math.floor(from / 60) * 60;
-  to = Math.ceil(to / 60) * 60;
-
-  const hours = [];
-  for (let m = from; m < to; m += 60) hours.push(m);
-  const gridH = ((to - from) / 60) * CAL_ROW_H;
-  const posOf = (min) => ((min - from) / 60) * CAL_ROW_H;
-
   const live = bookings.filter(b => !["cancelled", "no_show"].includes(b.status));
   const revenue = live.reduce((s, b) => s + (b.charged_amount || 0), 0);
-  const WD_SHORT = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
   const MON = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
   const endDate = new Date(days[6].date + "T00:00:00");
   const startDate = new Date(start + "T00:00:00");
@@ -1195,87 +1231,62 @@ async function renderCalendarWeek() {
         </button>`).join("")}
     </div>
 
-    <div class="cal-wrap"><div class="cal-scroll">
-      <div class="cal-grid" style="grid-template-columns: 46px repeat(7, minmax(96px, 1fr));">
-        <div class="cal-head corner"></div>
-        ${days.map(day => {
-          const dd = new Date(day.date + "T00:00:00");
-          const isT = day.date === todayStr();
-          return `<div class="cal-head${isT ? " today-head" : ""}">${WD_SHORT[day.weekday]} ${dd.getDate()}
-            <small>${day.open != null ? day.events.length + " зап." : "выходной"}</small>
-          </div>`;
-        }).join("")}
-
-        <div class="cal-time" style="height:${gridH}px">
-          ${hours.map(h => `<div style="height:${CAL_ROW_H}px">${fmtMinutes(h)}</div>`).join("")}
-        </div>
-
-        ${days.map(day => renderWeekColumn(day, { from, to, gridH, posOf, colorById, nameById })).join("")}
-      </div>
-    </div></div>
+    <div class="wk">
+      ${days.map(day => renderWeekDay(day, { colorById, nameById })).join("")}
+    </div>
   `;
-
-  const scroller = document.querySelector(".cal-scroll");
-  if (scroller) {
-    const now = new Date().getHours() * 60 + new Date().getMinutes();
-    if (now > from && now < to) scroller.scrollTop = Math.max(0, posOf(now) - 80);
-  }
 }
 
-function renderWeekColumn(day, { from, to, gridH, posOf, colorById, nameById }) {
+// День недели — колонка-список. В сетке с семью колонками текст резался
+// на «10:0…» и «Kore…», а пересекающиеся записи превращались в полоски.
+function renderWeekDay(day, { colorById, nameById }) {
+  const dd = new Date(day.date + "T00:00:00");
+  const WD_FULL = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
+  const MON = ["янв","фев","мар","апр","мая","июн","июл","авг","сен","окт","ноя","дек"];
   const isToday = day.date === todayStr();
-  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
 
-  const offBlocks = [];
-  if (day.open == null) offBlocks.push({ start: from, end: to });
-  else {
-    if (day.open > from) offBlocks.push({ start: from, end: day.open });
-    if (day.close < to) offBlocks.push({ start: day.close, end: to });
-  }
+  const live = day.events.filter(b => !["cancelled", "no_show"].includes(b.status));
+  const sum = live.reduce((s, b) => s + (b.charged_amount || 0), 0);
+  const sorted = [...day.events].sort((a, b) =>
+    String(a.requested_datetime).localeCompare(String(b.requested_datetime)));
 
   return `
-    <div class="cal-col" style="height:${gridH}px" onclick="calWeekClick(event, '${day.date}', ${from})">
-      ${offBlocks.map(o => `<div class="cal-off" style="position:absolute;left:0;right:0;top:${posOf(o.start)}px;height:${posOf(o.end) - posOf(o.start)}px"></div>`).join("")}
-      ${Array.from({ length: (to - from) / 60 }, (_, i) => `
-        <div class="cal-hour" style="position:absolute;left:0;right:0;top:${i * CAL_ROW_H}px;height:${CAL_ROW_H}px">
-          <div class="cal-half" style="height:${CAL_ROW_H / 2}px"></div>
-        </div>`).join("")}
+    <div class="wk-day${isToday ? " today" : ""}${day.open == null ? " off" : ""}">
+      <div class="wk-head">
+        <div class="wk-date">${WD_FULL[day.weekday]}<b>${dd.getDate()} ${MON[dd.getMonth()]}</b></div>
+        <div class="wk-sum">${day.open == null ? "выходной"
+          : live.length ? `${live.length} зап.${sum ? " · " + Math.round(sum).toLocaleString("ru-RU") + " PLN" : ""}`
+          : "свободно"}</div>
+      </div>
 
-      ${day.offs.map(t => {
-        const s = t.start_minutes ?? from, e = t.end_minutes ?? to;
-        return `<div class="cal-ev off" onclick="event.stopPropagation()" style="top:${posOf(s)}px;height:${Math.max(CAL_MIN_H, posOf(e) - posOf(s))}px">
-                  <b>${nameById[t.employee_id] || ""}: ${t.reason || "не работает"}</b></div>`;
-      }).join("")}
+      <div class="wk-list">
+        ${day.offs.map(t => `<div class="wk-off">${nameById[t.employee_id] || ""}: ${t.reason || "не работает"}</div>`).join("")}
 
-      ${layoutEvents(day.events).map(({ b, s, e, lane, lanes }) => {
-        const muted = ["cancelled", "no_show"].includes(b.status);
-        const done = b.status === "completed";
-        const color = colorById[b.employee_id] || "#b8824f";
-        const name = b.client_full_name || b.client_name || "Без имени";
-        const label = b.custom_service_label || b.service_name || "";
-        const w = 100 / lanes;
-        const bg = muted ? "#c9c2ba" : done ? color + "cc" : color;
-        return `<div class="cal-ev${muted ? " cancelled" : ""}"
-                     style="top:${posOf(s)}px;height:${Math.max(CAL_MIN_H, posOf(e) - posOf(s))}px;
-                            left:calc(${lane * w}% + 2px); right:auto; width:calc(${w}% - 4px); background:${bg}"
-                     onclick='event.stopPropagation(); openVisitForm(${JSON.stringify(b).replace(/'/g, "&#39;")})'
-                     title="${fmtMinutes(s)}–${fmtMinutes(e)} · ${name} · ${label} · ${nameById[b.employee_id] || ""}">
-                  <b>${fmtMinutes(s)} ${name}</b><i>${label}</i>
-                  ${!muted && !done ? `<button class="ev-done" title="Завершить визит"
-                     onclick='event.stopPropagation(); openQuickComplete(${JSON.stringify(b).replace(/'/g, "&#39;")})'>✓</button>` : ""}
-                </div>`;
-      }).join("")}
+        ${sorted.map(b => {
+          const muted = ["cancelled", "no_show"].includes(b.status);
+          const done = b.status === "completed";
+          const color = colorById[b.employee_id] || "#b8824f";
+          const name = b.client_full_name || b.client_name || "Без имени";
+          const label = b.custom_service_label || b.service_name || "";
+          const s = minutesOfDay(b.requested_datetime);
+          const e = minutesOfDay(b.end_datetime) ?? (s + (b.duration_minutes || 60));
+          return `
+            <div class="wk-ev${muted ? " cancelled" : ""}${done ? " done" : ""}" style="border-left-color:${color}"
+                 onclick='openVisitForm(${JSON.stringify(b).replace(/'/g, "&#39;")})'>
+              <div class="wk-time">${fmtMinutes(s)}<small>–${fmtMinutes(e)}</small></div>
+              <div class="wk-body">
+                <div class="wk-name">${name}</div>
+                <div class="wk-serv">${label}</div>
+                <div class="wk-master"><span class="dot" style="background:${color}"></span>${nameById[b.employee_id] || ""}${b.charged_amount ? " · " + Math.round(b.charged_amount) + " PLN" : ""}</div>
+              </div>
+              ${!muted && !done ? `<button class="wk-done" title="Завершить визит"
+                 onclick='event.stopPropagation(); openQuickComplete(${JSON.stringify(b).replace(/'/g, "&#39;")})'>✓</button>` : ""}
+            </div>`;
+        }).join("")}
 
-      ${isToday && nowMin > from && nowMin < to ? `<div class="cal-now" style="top:${posOf(nowMin)}px"></div>` : ""}
+        ${day.open != null ? `<button class="wk-add" onclick="openVisitForm({ requested_datetime: '${day.date}T10:00', employee_id: ${calFilterEmployee || "null"} })">+ запись</button>` : ""}
+      </div>
     </div>`;
-}
-
-function calWeekClick(event, dateStr, from) {
-  const col = event.currentTarget;
-  const y = event.clientY - col.getBoundingClientRect().top;
-  let minutes = from + Math.round((y / CAL_ROW_H * 60) / 30) * 30;
-  minutes = Math.max(0, Math.min(23 * 60 + 30, minutes));
-  openVisitForm({ requested_datetime: `${dateStr}T${fmtMinutes(minutes)}`, employee_id: calFilterEmployee || null });
 }
 
 // ---------- БЫСТРОЕ ЗАВЕРШЕНИЕ ВИЗИТА ----------
@@ -1997,6 +2008,15 @@ function money(n) {
   return Math.round(n || 0).toLocaleString("ru-RU");
 }
 
+// 1 визит, 2 визита, 5 визитов
+function plural(n, forms) {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return forms[2];
+  if (b > 1 && b < 5) return forms[1];
+  if (b === 1) return forms[0];
+  return forms[2];
+}
+
 async function renderSummary() {
   document.getElementById("fab").style.display = "none";
   document.getElementById("content").innerHTML = `<div class="empty">Загрузка...</div>`;
@@ -2021,6 +2041,7 @@ async function renderSummary() {
   }
   const maxHour = Math.max(1, ...hourSeries.map(h => h.visits));
   const quietHour = maxHour * 0.35; // тихими считаем всё ниже трети от пика
+  const peak = hourSeries.reduce((a, b) => (b.visits > a.visits ? b : a), { hour: 0, visits: 0 });
 
   const WD = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
   const weekdaySeries = [1, 2, 3, 4, 5, 6, 0].map(n => {
@@ -2031,7 +2052,9 @@ async function renderSummary() {
   const quietDay = maxWeekday * 0.35;
   const maxDay = Math.max(1, ...data.byDay.map(d => d.revenue));
   // Для длинных периодов дневные столбики сливаются — группируем по неделям
-  const series = period.days > 40 ? groupByWeek(data.byDay) : data.byDay.map(d => ({ label: d.day.slice(8), revenue: d.revenue, day: d.day }));
+  const series = period.days > 40
+    ? groupByWeek(data.byDay)
+    : data.byDay.map(d => ({ label: d.day.slice(8) + "." + d.day.slice(5, 7), revenue: d.revenue, visits: d.visits, day: d.day }));
   const maxSeries = Math.max(1, ...series.map(s => s.revenue));
   const monthNames = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
 
@@ -2064,8 +2087,10 @@ async function renderSummary() {
     `).join("") : `<p class="empty">За период нет данных.</p>`}
 
     <h3 class="sum-title">Выручка по ${period.days > 40 ? "неделям" : "дням"}</h3>
+    <div class="chart-readout" id="ro_rev">Нажми на столбик, чтобы увидеть сумму</div>
     <div class="spark">
-      ${series.map(s => `<div class="col ${s.day === todayStr() ? "today" : ""}" title="${s.label}: ${money(s.revenue)} PLN">
+      ${series.map((s, i) => `<div class="col ${s.day === todayStr() ? "today" : ""}" data-i="${i}"
+        onclick="pickBar(this, 'ro_rev', '${period.days > 40 ? "Неделя с " + s.label : s.label}', '${money(s.revenue)} PLN · ${s.visits || 0} виз.')">
         <div class="fill" style="height:${s.revenue / maxSeries * 100}%"></div></div>`).join("")}
     </div>
     ${series.length ? `<div class="spark-labels"><span>${series[0].label}</span><span>${series[series.length-1].label}</span></div>` : ""}
@@ -2083,19 +2108,23 @@ async function renderSummary() {
     `).join("") : `<p class="empty">За период нет данных.</p>`}
 
     <h3 class="sum-title">Загруженность по часам</h3>
+    <div class="chart-readout" id="ro_hour">Пик в ${peak.hour}:00 — ${peak.visits} ${plural(peak.visits, ["визит","визита","визитов"])}</div>
     <div class="load-grid">
-      ${hourSeries.map(h => `<div class="b ${h.visits <= quietHour ? "quiet" : ""}" title="${h.hour}:00 — ${h.visits} визитов">
+      ${hourSeries.map(h => `<div class="b ${h.visits <= quietHour ? "quiet" : ""}"
+        onclick="pickBar(this,'ro_hour','${h.hour}:00','${h.visits} ${plural(h.visits, ["визит","визита","визитов"])}')">
         <i style="height:${h.visits / maxHour * 100}%"></i></div>`).join("")}
     </div>
     <div class="load-labels">${hourSeries.map(h => `<span>${h.hour % 3 === 0 ? h.hour : ""}</span>`).join("")}</div>
     <p class="hint">Серым — самые тихие часы. Под них удобно ставить акции.</p>
 
     <h3 class="sum-title">Загруженность по дням недели</h3>
+    <div class="chart-readout" id="ro_wd">Нажми на день, чтобы увидеть выручку</div>
     <div class="load-grid">
-      ${weekdaySeries.map(w => `<div class="b ${w.visits <= quietDay ? "quiet" : ""}" title="${w.name}: ${w.visits} визитов, ${money(w.revenue)} PLN">
+      ${weekdaySeries.map(w => `<div class="b ${w.visits <= quietDay ? "quiet" : ""}"
+        onclick="pickBar(this,'ro_wd','${w.name}','${w.visits} виз. · ${money(w.revenue)} PLN')">
         <i style="height:${w.visits / maxWeekday * 100}%"></i></div>`).join("")}
     </div>
-    <div class="load-labels">${weekdaySeries.map(w => `<span>${w.name}</span>`).join("")}</div>
+    <div class="load-labels">${weekdaySeries.map(w => `<span>${w.name}<b>${w.visits}</b></span>`).join("")}</div>
 
     <h3 class="sum-title">Давно не были — можно позвать</h3>
     <div class="seg">
@@ -2138,10 +2167,21 @@ function groupByWeek(byDay) {
     monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7)); // к понедельнику
     const key = todayStr(monday);
     let w = weeks.find(x => x.key === key);
-    if (!w) { w = { key, label: key.slice(5), revenue: 0, day: key }; weeks.push(w); }
+    if (!w) { w = { key, label: key.slice(8) + "." + key.slice(5, 7), revenue: 0, visits: 0, day: key }; weeks.push(w); }
     w.revenue += d.revenue;
+    w.visits += d.visits || 0;
   }
   return weeks;
+}
+
+// Выбор столбика: наведение мышью не работает на телефоне, поэтому
+// значение показываем строкой над графиком по нажатию.
+function pickBar(el, readoutId, label, value) {
+  const chart = el.parentElement;
+  chart.querySelectorAll(".picked").forEach(x => x.classList.remove("picked"));
+  el.classList.add("picked");
+  const ro = document.getElementById(readoutId);
+  if (ro) ro.innerHTML = `<b>${label}</b> · ${value}`;
 }
 
 function setSumPeriod(k) { sumPeriod = k; renderSummary(); }
