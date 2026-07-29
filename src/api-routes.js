@@ -6,6 +6,7 @@
 import { DAY_NAMES } from "./booking-slots.js";
 import { presentPhotos, toStoredPhoto, isStoredPhoto, storedKey } from "./photo-links.js";
 import { hashPassword, verifyPassword, DEFAULT_PERMS, parsePerms } from "./auth.js";
+import { getAgentResponse } from "./agent.js";
 
 function j(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
@@ -41,6 +42,42 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
   const perms = auth.perms || {};
   const myEmp = auth.employeeId || null;
   const forbid = () => j({ error: "Недостаточно прав" }, 403);
+
+  // --- Тест-чат агента (только владелица): поговорить с ботом на реальных данных ---
+  const TEST_CHANNEL = "panel-test";
+  if (path === "/api/agent/test" && method === "POST") {
+    if (!owner) return forbid();
+    const b = await request.json();
+    const msg = String(b.message || "").trim();
+    if (!msg) return j({ error: "Пустое сообщение" }, 400);
+
+    let conv = await db
+      .prepare("SELECT id FROM conversations WHERE salon_id = ? AND client_channel_id = ? AND status = 'active'")
+      .bind(SALON_ID, TEST_CHANNEL)
+      .first();
+    if (!conv) {
+      conv = await db
+        .prepare("INSERT INTO conversations (salon_id, client_channel_id, status) VALUES (?, ?, 'active') RETURNING id")
+        .bind(SALON_ID, TEST_CHANNEL)
+        .first();
+    }
+    try {
+      const result = await getAgentResponse(env, SALON_ID, conv.id, msg);
+      return j(result);
+    } catch (e) {
+      // Чаще всего — не задан секрет ANTHROPIC_API_KEY
+      return j({ error: "Агент не ответил: " + String(e.message || e) }, 500);
+    }
+  }
+  if (path === "/api/agent/test/reset" && method === "POST") {
+    if (!owner) return forbid();
+    // Закрываем текущий тестовый диалог, чтобы начать с чистого листа
+    await db
+      .prepare("UPDATE conversations SET status='closed', closed_at=CURRENT_TIMESTAMP WHERE salon_id=? AND client_channel_id=? AND status='active'")
+      .bind(SALON_ID, TEST_CHANNEL)
+      .run();
+    return j({ ok: true });
+  }
 
   // Кто вошёл — чтобы панель показала нужный набор вкладок
   if (path === "/api/auth/me" && method === "GET") {

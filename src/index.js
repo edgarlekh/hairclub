@@ -115,8 +115,8 @@ export default {
         return json({ reply: null, note: "owner_active" });
       }
 
-      const responseText = await getAgentResponse(env, SALON_ID, conversationId, message);
-      return json({ reply: responseText });
+      const result = await getAgentResponse(env, SALON_ID, conversationId, message);
+      return json({ reply: result.reply, photos: result.photos });
     } catch (err) {
       return json({ error: "Internal error", detail: String(err) }, 500);
     }

@@ -94,12 +94,31 @@ export async function getSalon(db, salonId) {
   return await db.prepare("SELECT * FROM salons WHERE id = ?").bind(salonId).first();
 }
 
+// Мастера с их услугами — без этого агент не знает, к кому и на что записывать
+export async function retrieveEmployees(db, salonId) {
+  const { results: employees } = await db
+    .prepare("SELECT id, name FROM employees WHERE salon_id = ? ORDER BY name")
+    .bind(salonId)
+    .all();
+  const { results: links } = await db
+    .prepare(
+      `SELECT es.employee_id, es.service_id FROM employee_services es
+       JOIN employees e ON e.id = es.employee_id WHERE e.salon_id = ?`
+    )
+    .bind(salonId)
+    .all();
+  const byEmp = {};
+  for (const l of links) (byEmp[l.employee_id] ??= []).push(l.service_id);
+  return employees.map((e) => ({ ...e, service_ids: byEmp[e.id] || [] }));
+}
+
 export async function retrieveContext(db, salonId, clientMessage) {
-  const [services, photos, faq, rules] = await Promise.all([
+  const [services, photos, faq, rules, employees] = await Promise.all([
     retrieveServices(db, salonId, clientMessage),
     retrievePhotos(db, salonId, clientMessage),
     retrieveFaq(db, salonId, clientMessage),
     getActiveRules(db, salonId),
+    retrieveEmployees(db, salonId),
   ]);
-  return { services, photos, faq, rules };
+  return { services, photos, faq, rules, employees };
 }

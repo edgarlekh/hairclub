@@ -84,6 +84,26 @@ function formatServices(services) {
     .join("\n");
 }
 
+// Мастера со списком id услуг, которые они делают — агенту нужно для записи
+function formatEmployees(employees, services) {
+  if (!employees || !employees.length) return "(мастера не заданы)";
+  const nameById = {};
+  for (const s of services || []) nameById[s.id] = s.name;
+  return employees
+    .map((e) => {
+      const does = (e.service_ids || []).map((id) => nameById[id]).filter(Boolean);
+      return `- id=${e.id} | ${e.name}` + (does.length ? ` | делает: ${does.join(", ")}` : " | услуги не заданы");
+    })
+    .join("\n");
+}
+
+function todayInfo() {
+  const days = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
+  const now = new Date();
+  const y = now.getFullYear(), m = String(now.getMonth() + 1).padStart(2, "0"), d = String(now.getDate()).padStart(2, "0");
+  return `Сегодня ${y}-${m}-${d} (${days[now.getDay()]}). Используй это, когда клиент говорит «сегодня», «завтра», «в субботу».`;
+}
+
 function formatPhotos(photos) {
   if (!photos.length) return "(нет подходящих фото)";
   return photos
@@ -143,8 +163,13 @@ ${formatEmojiInstruction(salon.emoji_usage)}
 ЗАПРЕЩЁННЫЕ СЛОВА И ФРАЗЫ (никогда не используй, даже если клиент сам их употребит):
 ${formatBannedWords(salon.banned_words)}
 
+${todayInfo()}
+
 РЕЛЕВАНТНЫЕ УСЛУГИ (используй только эти данные о ценах, не выдумывай):
 ${formatServices(context.services)}
+
+МАСТЕРА (для записи бери employee_id отсюда; предлагай только мастера, который делает нужную услугу):
+${formatEmployees(context.employees, context.services)}
 
 ПОДХОДЯЩИЕ ФОТО ПРИМЕРОВ РАБОТ:
 ${formatPhotos(context.photos)}
@@ -224,15 +249,7 @@ async function handleToolCall(db, toolName, toolInput, conversationId) {
   return "Неизвестный инструмент.";
 }
 
-export async function getAgentResponse(env, salonId, conversationId, clientMessage) {
-  const db = env.DB;
-  const salon = await getSalon(db, salonId);
-  const context = await retrieveContext(db, salonId, clientMessage);
-  const systemPrompt = buildSystemPrompt(salon, context);
-
-  await saveMessage(db, conversationId, "client", clientMessage);
-  const history = await getConversationHistory(db, conversationId);
-
+async function callAnthropic(env, systemPrompt, messages) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -244,27 +261,56 @@ export async function getAgentResponse(env, salonId, conversationId, clientMessa
       model: MODEL,
       max_tokens: 1000,
       system: systemPrompt,
-      messages: history,
+      messages,
       tools: TOOLS,
     }),
   });
-
   if (!res.ok) {
     const errText = await res.text();
     throw new Error(`Anthropic API error (status ${res.status}): ${errText}`);
   }
+  return res.json();
+}
 
-  const data = await res.json();
+export async function getAgentResponse(env, salonId, conversationId, clientMessage) {
+  const db = env.DB;
+  const salon = await getSalon(db, salonId);
+  const context = await retrieveContext(db, salonId, clientMessage);
+  const systemPrompt = buildSystemPrompt(salon, context);
+
+  await saveMessage(db, conversationId, "client", clientMessage);
+  // История — рабочий контекст модели. Инструменты и их результаты живут только здесь,
+  // клиенту уходит финальный текст, а не сырой JSON, как было раньше.
+  const messages = await getConversationHistory(db, conversationId);
+
+  const attachedPhotos = [];
   let finalText = "";
-  for (const block of data.content) {
-    if (block.type === "text") {
-      finalText += block.text;
-    } else if (block.type === "tool_use") {
-      const toolResult = await handleToolCall(db, block.name, block.input, conversationId);
-      finalText += `\n\n[Действие выполнено: ${toolResult}]`;
+
+  // Агентский цикл: пока модель просит инструмент — выполняем и отдаём результат обратно.
+  for (let step = 0; step < 5; step++) {
+    const data = await callAnthropic(env, systemPrompt, messages);
+
+    // Собираем текст этого хода
+    const stepText = data.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    if (stepText) finalText = stepText;
+
+    const toolUses = data.content.filter((b) => b.type === "tool_use");
+    if (data.stop_reason !== "tool_use" || !toolUses.length) break;
+
+    // Ответ модели (с запросом инструментов) кладём в историю как есть
+    messages.push({ role: "assistant", content: data.content });
+
+    // Выполняем инструменты и возвращаем результаты одним пользовательским сообщением
+    const toolResults = [];
+    for (const tu of toolUses) {
+      if (tu.name === "attach_photo") attachedPhotos.push(tu.input.photo_id);
+      const result = await handleToolCall(db, tu.name, tu.input, conversationId);
+      toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: result });
     }
+    messages.push({ role: "user", content: toolResults });
   }
 
+  if (!finalText) finalText = "Секунду, уточню и вернусь к вам.";
   await saveMessage(db, conversationId, "agent", finalText);
-  return finalText;
+  return { reply: finalText, photos: attachedPhotos };
 }
