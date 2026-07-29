@@ -112,6 +112,19 @@ export async function getLessons(db, salonId, limit = 40) {
   return results;
 }
 
+// Расшифровки прикреплённых скриншотов (переписки, прайсы) — бот учится и с картинок
+export async function getScreenshotTranscripts(db, salonId) {
+  const out = [];
+  const q = "SELECT transcript FROM %T WHERE salon_id = ? AND transcript IS NOT NULL AND TRIM(transcript) != ''";
+  for (const t of ["training_photos", "survey_photos"]) {
+    try {
+      const { results } = await db.prepare(q.replace("%T", t)).bind(salonId).all();
+      for (const r of results) out.push(r.transcript);
+    } catch { /* колонки может ещё не быть до миграции — не падаем */ }
+  }
+  return out;
+}
+
 // Мастера с их услугами — без этого агент не знает, к кому и на что записывать
 export async function retrieveEmployees(db, salonId) {
   const { results: employees } = await db
@@ -131,7 +144,7 @@ export async function retrieveEmployees(db, salonId) {
 }
 
 export async function retrieveContext(db, salonId, clientMessage) {
-  const [services, photos, faq, rules, employees, survey, lessons] = await Promise.all([
+  const [services, photos, faq, rules, employees, survey, lessons, screenshots] = await Promise.all([
     retrieveServices(db, salonId, clientMessage),
     retrievePhotos(db, salonId, clientMessage),
     retrieveFaq(db, salonId, clientMessage),
@@ -139,6 +152,7 @@ export async function retrieveContext(db, salonId, clientMessage) {
     retrieveEmployees(db, salonId),
     getSurveyAnswers(db, salonId),
     getLessons(db, salonId),
+    getScreenshotTranscripts(db, salonId),
   ]);
-  return { services, photos, faq, rules, employees, survey, lessons };
+  return { services, photos, faq, rules, employees, survey, lessons, screenshots };
 }

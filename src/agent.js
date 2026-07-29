@@ -141,6 +141,11 @@ function formatSurvey(survey) {
   return survey.map((s) => `• ${s.label}\n  ${String(s.answer).replace(/\n/g, "\n  ")}`).join("\n");
 }
 
+function formatScreenshots(shots) {
+  if (!shots || !shots.length) return "(скриншотов пока нет)";
+  return shots.map((t, i) => `— Скриншот ${i + 1}:\n${t}`).join("\n\n");
+}
+
 function formatLessons(lessons) {
   if (!lessons || !lessons.length) return "(пока нет)";
   return lessons
@@ -229,6 +234,9 @@ ${formatSurvey(context.survey)}
 УРОКИ ОТ ВЛАДЕЛИЦЫ (живые примеры и поправки — это важнее общих правил, соблюдай их точно):
 ${formatLessons(context.lessons)}
 
+ПРИМЕРЫ ПЕРЕПИСОК И ПРАЙСЫ СО СКРИНШОТОВ (владелица приложила реальные переписки/прайсы; учись у них — как она общается, какие цены, как ведёт к записи):
+${formatScreenshots(context.screenshots)}
+
 КАК ВЕСТИ ДИАЛОГ (очень важно, клиенты жалуются на навязчивость):
 - Реагируй на то, что человек реально написал, а не на то, что он «наверное хочет». Веди живой диалог, как администратор в переписке, а не выдавай справку.
 - Если клиент только обмолвился ("первый раз задумалась о кератине", "думаю про наращивание") — НЕ объясняй, что это за услуга, НЕ рассказывай про эффект и НЕ предлагай "сориентировать" по цене. Он об этом не просил. Ответь коротко и тепло и задай открытый вопрос: что именно ему интересно или что хочет узнать. Пусть клиент ведёт.
@@ -311,6 +319,37 @@ async function handleToolCall(db, toolName, toolInput, conversationId, bookingSo
     return `[Фото id=${toolInput.photo_id} отправлено клиенту]`;
   }
   return "Неизвестный инструмент.";
+}
+
+// Читаем скриншот (переписку или прайс) и вытаскиваем текст — им учится бот.
+// Vision понимает jpeg/png/webp/gif; HEIC не поддерживается, такие пропускаем.
+export async function transcribeImage(env, bytes, mediaType) {
+  if (!env.ANTHROPIC_API_KEY) return null;
+  if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(mediaType)) return null;
+
+  let binary = "";
+  const arr = new Uint8Array(bytes);
+  for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i]);
+  const base64 = btoa(binary);
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 900,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+          { type: "text", text: "Это скриншот из работы салона красоты — переписка с клиентом или прайс. Выпиши всё содержимое текстом: если переписка — реплики клиента и администратора по порядку, помечая кто есть кто; если прайс — услуги и цены. Только извлечённый текст, без своих комментариев. Сохрани исходный язык." },
+        ],
+      }],
+    }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.content?.filter((b) => b.type === "text").map((b) => b.text).join("").trim() || null;
 }
 
 async function callAnthropic(env, systemPrompt, messages) {

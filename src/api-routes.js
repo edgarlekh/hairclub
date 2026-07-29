@@ -6,7 +6,7 @@
 import { DAY_NAMES } from "./booking-slots.js";
 import { presentPhotos, toStoredPhoto, isStoredPhoto, storedKey } from "./photo-links.js";
 import { hashPassword, verifyPassword, DEFAULT_PERMS, parsePerms } from "./auth.js";
-import { getAgentResponse } from "./agent.js";
+import { getAgentResponse, transcribeImage } from "./agent.js";
 
 function j(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
@@ -1078,13 +1078,16 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
 
     const ext = (file.name || "").match(/\.[a-z0-9]+$/i)?.[0] || extForType(file.type);
     const key = `survey/${qkey}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}${ext}`;
-    await env.PHOTOS.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
-
+    const bytes = await file.arrayBuffer();
+    await env.PHOTOS.put(key, bytes, { httpMetadata: { contentType: file.type } });
+    // Прайс/скрин читаем в текст — чтобы агент знал, что на картинке
+    let transcript = null;
+    try { transcript = await transcribeImage(env, bytes, file.type); } catch { transcript = null; }
     const result = await db
-      .prepare("INSERT INTO survey_photos (salon_id, question_key, photo_url) VALUES (?, ?, ?) RETURNING id")
-      .bind(SALON_ID, qkey, toStoredPhoto(key)).first();
+      .prepare("INSERT INTO survey_photos (salon_id, question_key, photo_url, transcript) VALUES (?, ?, ?, ?) RETURNING id")
+      .bind(SALON_ID, qkey, toStoredPhoto(key), transcript).first();
     const [saved] = await presentPhotos([{ id: result.id, question_key: qkey, photo_url: toStoredPhoto(key) }], request, env);
-    return j(saved);
+    return j({ ...saved, transcript });
   }
   const surveyPhotoDelMatch = path.match(/^\/api\/survey\/photos\/(\d+)$/);
   if (surveyPhotoDelMatch && method === "DELETE") {
@@ -1152,12 +1155,16 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
     if (file.size > MAX_PHOTO_BYTES) return j({ error: `Фото больше ${Math.round(MAX_PHOTO_BYTES / 1024 / 1024)} МБ` }, 400);
     const ext = (file.name || "").match(/\.[a-z0-9]+$/i)?.[0] || extForType(file.type);
     const key = `training/${tid}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}${ext}`;
-    await env.PHOTOS.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+    const bytes = await file.arrayBuffer();
+    await env.PHOTOS.put(key, bytes, { httpMetadata: { contentType: file.type } });
+    // Читаем скриншот и сохраняем текст — на нём агент учится
+    let transcript = null;
+    try { transcript = await transcribeImage(env, bytes, file.type); } catch { transcript = null; }
     const result = await db
-      .prepare("INSERT INTO training_photos (salon_id, training_id, photo_url) VALUES (?, ?, ?) RETURNING id")
-      .bind(SALON_ID, tid, toStoredPhoto(key)).first();
+      .prepare("INSERT INTO training_photos (salon_id, training_id, photo_url, transcript) VALUES (?, ?, ?, ?) RETURNING id")
+      .bind(SALON_ID, tid, toStoredPhoto(key), transcript).first();
     const [saved] = await presentPhotos([{ id: result.id, training_id: tid, photo_url: toStoredPhoto(key) }], request, env);
-    return j(saved);
+    return j({ ...saved, transcript });
   }
   const lessonPhotoDelMatch = path.match(/^\/api\/agent\/lessons\/photos\/(\d+)$/);
   if (lessonPhotoDelMatch && method === "DELETE") {
