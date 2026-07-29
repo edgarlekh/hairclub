@@ -1038,6 +1038,63 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
     return j({ ok: true });
   }
 
+  // --- Анкета владелицы (для обучения агента) ---
+  if (path === "/api/survey" && method === "GET") {
+    if (!owner) return forbid();
+    const { results: answers } = await db
+      .prepare("SELECT question_key, section, label, answer, updated_at FROM survey_answers WHERE salon_id = ?")
+      .bind(SALON_ID).all();
+    const { results: photos } = await db
+      .prepare("SELECT id, question_key, photo_url FROM survey_photos WHERE salon_id = ?")
+      .bind(SALON_ID).all();
+    const presented = await presentPhotos(photos, request, env);
+    return j({ answers, photos: presented });
+  }
+  if (path === "/api/survey" && method === "PUT") {
+    if (!owner) return forbid();
+    const b = await request.json();
+    if (!b.question_key) return j({ error: "Нет ключа вопроса" }, 400);
+    await db
+      .prepare(
+        `INSERT INTO survey_answers (salon_id, question_key, section, label, answer, updated_at)
+         VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(salon_id, question_key)
+         DO UPDATE SET answer=excluded.answer, section=excluded.section, label=excluded.label, updated_at=CURRENT_TIMESTAMP`
+      )
+      .bind(SALON_ID, b.question_key, b.section || "", b.label || "", b.answer || "")
+      .run();
+    return j({ ok: true });
+  }
+  const surveyPhotoMatch = path.match(/^\/api\/survey\/([\w-]+)\/photos$/);
+  if (surveyPhotoMatch && method === "POST") {
+    if (!owner) return forbid();
+    if (!env.PHOTOS) return j({ error: "Хранилище фото не подключено" }, 500);
+    const qkey = surveyPhotoMatch[1];
+    const form = await request.formData();
+    const file = form.get("file");
+    if (!file || typeof file === "string") return j({ error: "Файл не получен" }, 400);
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) return j({ error: "Только фото: JPEG, PNG, WebP или HEIC" }, 400);
+    if (file.size > MAX_PHOTO_BYTES) return j({ error: `Фото больше ${Math.round(MAX_PHOTO_BYTES / 1024 / 1024)} МБ` }, 400);
+
+    const ext = (file.name || "").match(/\.[a-z0-9]+$/i)?.[0] || extForType(file.type);
+    const key = `survey/${qkey}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+    await env.PHOTOS.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+
+    const result = await db
+      .prepare("INSERT INTO survey_photos (salon_id, question_key, photo_url) VALUES (?, ?, ?) RETURNING id")
+      .bind(SALON_ID, qkey, toStoredPhoto(key)).first();
+    const [saved] = await presentPhotos([{ id: result.id, question_key: qkey, photo_url: toStoredPhoto(key) }], request, env);
+    return j(saved);
+  }
+  const surveyPhotoDelMatch = path.match(/^\/api\/survey\/photos\/(\d+)$/);
+  if (surveyPhotoDelMatch && method === "DELETE") {
+    if (!owner) return forbid();
+    const row = await db.prepare("SELECT photo_url FROM survey_photos WHERE id=?").bind(surveyPhotoDelMatch[1]).first();
+    if (row && isStoredPhoto(row.photo_url) && env.PHOTOS) await env.PHOTOS.delete(storedKey(row.photo_url));
+    await db.prepare("DELETE FROM survey_photos WHERE id=?").bind(surveyPhotoDelMatch[1]).run();
+    return j({ ok: true });
+  }
+
   // --- Диалоги (просмотр + вмешательство владельца) ---
   if (path === "/api/conversations" && method === "GET") {
     const { results } = await db

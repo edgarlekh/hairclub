@@ -138,6 +138,35 @@
   .cal-ev.is-test { outline: 2px dashed rgba(255,255,255,.7); outline-offset: -3px; }
   .cal-ev .test-tag { position: absolute; top: 2px; right: 2px; z-index: 2; }
   .wk-ev.is-test { border-left-color: var(--terracotta) !important; background: #fbeee6; }
+
+  /* ---------- АНКЕТА ---------- */
+  .sv-intro { background: var(--gradient); color: #fff; border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  .sv-intro h3 { margin: 0 0 4px; font-family: var(--font-heading); }
+  .sv-intro p { margin: 0; font-size: 13px; opacity: .95; }
+  .sv-progress { height: 8px; background: rgba(255,255,255,.3); border-radius: 6px; margin-top: 12px; overflow: hidden; }
+  .sv-progress i { display: block; height: 100%; background: #fff; border-radius: 6px; transition: width .3s; }
+  .sv-section { margin-bottom: 10px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: white; }
+  .sv-head { padding: 13px 15px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; gap: 10px; }
+  .sv-head h3 { margin: 0; font-family: var(--font-heading); font-size: 15px; font-weight: 600; }
+  .sv-head .sv-count { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .sv-head .chev { color: var(--muted); transition: transform .2s; }
+  .sv-section.open .chev { transform: rotate(90deg); }
+  .sv-body { display: none; padding: 0 15px 8px; }
+  .sv-section.open .sv-body { display: block; }
+  .sv-q { padding: 12px 0; border-top: 1px solid var(--border); }
+  .sv-q label { display: block; font-size: 14px; color: var(--text); font-weight: 500; margin-bottom: 6px; }
+  .sv-q label .star { color: var(--gold-2); }
+  .sv-q.filled label::after { content: " ✓"; color: #6f9b6f; font-weight: 700; }
+  .sv-q textarea { width: 100%; min-height: 54px; }
+  .sv-photos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
+  .sv-photos img { width: 56px; height: 56px; object-fit: cover; border-radius: 8px; cursor: zoom-in; }
+  .sv-photo-wrap { position: relative; }
+  .sv-photo-wrap button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; padding: 0;
+                          border-radius: 50%; border: none; background: var(--terracotta); color: #fff; font-size: 12px; cursor: pointer; }
+  .sv-attach { font-size: 12px; color: var(--gold-mid); font-weight: 600; cursor: pointer; border: 1px dashed var(--border);
+               border-radius: 8px; padding: 8px 12px; display: inline-flex; align-items: center; gap: 5px; }
+  .sv-attach:hover { border-color: var(--gold-2); }
+  .sv-saved { font-size: 11px; color: #6f9b6f; margin-left: 8px; }
   .empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 14px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .chip { font-size: 11px; padding: 4px 10px; border-radius: 20px; background: var(--bg); border: 1px solid var(--border); color: var(--text); }
@@ -429,6 +458,7 @@
   <button data-tab="clients">Клиенты</button>
   <button data-tab="myrevenue" style="display:none">Моя выручка</button>
   <button data-tab="summary">Сводка</button>
+  <button data-tab="survey">Анкета</button>
   <button data-tab="rules">Правила</button>
   <button data-tab="knowledge">База знаний</button>
   <button data-tab="conversations">Диалоги</button>
@@ -2597,6 +2627,7 @@ function render() {
     calendar: renderCalendar,
     myrevenue: renderMyRevenue,
     summary: renderSummary,
+    survey: renderSurvey,
     services: renderServices,
     employees: renderEmployees,
     clients: renderClients,
@@ -2606,6 +2637,183 @@ function render() {
     profile: renderProfile,
   };
   renderers[currentTab]();
+}
+
+// ---------- АНКЕТА ВЛАДЕЛИЦЫ (обучение агента) ----------
+// star: критичный вопрос. Ответы уходят агенту, к каждому можно прикрепить фото/скрин.
+const SURVEY = [
+  { title: "О салоне", qs: [
+    { k: "salon_name", q: "Как боту представляться и называть салон?" },
+    { k: "address", q: "Точный адрес. Как добраться (метро/остановка, ориентир)? Есть парковка?", star: 1 },
+    { k: "hours", q: "Часы работы по дням. Сейчас Пн–Сб 09:00–21:00, Вс выходной — верно?" },
+    { k: "languages", q: "На каких языках общаться с клиентами? (польский / русский / украинский)", star: 1 },
+    { k: "escalate_to", q: "Куда бот передаёт диалог, если сам не справляется? Что писать клиенту?" },
+  ]},
+  { title: "Услуги — общее", qs: [
+    { k: "services_list", q: "Какие услуги бот может предлагать и записывать? Перечисли всё актуальное.", star: 1 },
+    { k: "services_hide", q: "О чём боту НЕ говорить / что вы больше не делаете?" },
+    { k: "services_manual", q: "Что только «через вас лично» (бот не записывает, а передаёт)?" },
+  ]},
+  { title: "Кератин", qs: [
+    { k: "keratin_price", q: "Реальная вилка цен: короткие/тонкие, средние, длинные/густые (злотые). Можно прикрепить фото прайса.", star: 1 },
+    { k: "keratin_time", q: "Сколько по времени (короткие / длинные)?" },
+    { k: "keratin_effect", q: "Сколько держится эффект, от чего зависит?" },
+    { k: "keratin_color", q: "Можно красить до/после? Через сколько?" },
+    { k: "keratin_contra", q: "Противопоказания? (беременность, повреждённые волосы)" },
+    { k: "keratin_aftercare", q: "Что нельзя первые дни после?" },
+    { k: "keratin_brand", q: "Каким составом/брендом работаете? Называть ли клиенту?" },
+  ]},
+  { title: "Наращивание и коррекция", qs: [
+    { k: "ext_variants", q: "Варианты (методы, граммы), от чего зависит цена, ориентир по цене.", star: 1 },
+    { k: "ext_time", q: "Сколько по времени?" },
+    { k: "ext_correction", q: "Коррекция раз в сколько? Цена коррекции?" },
+    { k: "ext_removal", q: "Снятие — делаете, сколько стоит?" },
+    { k: "ext_care", q: "Уход: что можно/нельзя? Противопоказания?" },
+  ]},
+  { title: "Окрашивание / блонд", qs: [
+    { k: "color_what", q: "Что делаете? (корни, полное, тонирование, осветление, air touch, total blond)" },
+    { k: "color_price", q: "От чего зависит цена по каждому, ориентир. Можно фото прайса." },
+    { k: "color_time", q: "Сколько по времени? Что важно знать клиенту заранее?" },
+  ]},
+  { title: "Мастера", qs: [
+    { k: "masters_who", q: "Кто из мастеров какие услуги делает?", star: 1 },
+    { k: "masters_price", q: "Различия в цене между мастерами? (топ-мастер дороже?)" },
+    { k: "masters_choice", q: "Можно к конкретному мастеру или бот сам предлагает свободного?" },
+    { k: "masters_lang", q: "На каких языках говорят мастера?" },
+  ]},
+  { title: "Запись, отмена, опоздания", qs: [
+    { k: "book_ahead", q: "За сколько вперёд можно записаться?", star: 1 },
+    { k: "book_deposit", q: "Нужна ли предоплата/депозит? Сколько и как?" },
+    { k: "book_cancel", q: "Отмена/перенос — за сколько предупредить? Что если не предупредил?", star: 1 },
+    { k: "book_late", q: "Опоздание — сколько ждёте? Неявка — последствия?" },
+    { k: "book_multi", q: "Можно несколько услуг за визит? (кератин + окрашивание)" },
+  ]},
+  { title: "Оплата и скидки", qs: [
+    { k: "payment", q: "Способы оплаты? (наличные, карта, BLIK, перевод) Валюта — злотые?" },
+    { k: "discounts", q: "Есть скидки/акции/лояльность? Скидка на первый визит?" },
+    { k: "discounts_when", q: "Когда боту говорить о скидках? (никогда сам / только если спросят)", star: 1 },
+  ]},
+  { title: "Характер и границы бота", qs: [
+    { k: "tone", q: "Тон устраивает («вежливый, на вы, тёплый, но деловой»)? Что поменять?" },
+    { k: "forbidden", q: "Что боту КАТЕГОРИЧЕСКИ нельзя? (обещать результат, мед. советы, спорить)", star: 1 },
+    { k: "handoff", q: "Когда передавать диалог тебе? (жалобы, торг о цене, здоровье, конфликт)", star: 1 },
+    { k: "upsell", q: "Предлагать ли доп. услуги (апселл)? Насколько настойчиво?" },
+    { k: "afterhours", q: "Что делать с сообщениями ночью / в нерабочее время?" },
+    { k: "banned_words", q: "Запрещённые слова/фразы?" },
+  ]},
+  { title: "Частые вопросы клиентов", qs: [
+    { k: "faq", q: "Топ вопросов клиентов и как правильно отвечать — 5–10 пар «вопрос → ответ». Это самое важное для живого тона.", star: 1 },
+    { k: "objections", q: "Частые возражения/сомнения и как их снимать?" },
+    { k: "examples", q: "Примеры хороших ответов на «первый раз задумалась о кератине» — как ответила бы ты сама?", star: 1 },
+  ]},
+  { title: "Фото примеров работ", qs: [
+    { k: "photos_ok", q: "Можно боту присылать клиенту фото «до/после» / примеры работ?" },
+    { k: "photos_which", q: "По каким услугам есть хорошие примеры? Прикрепи их сюда." },
+  ]},
+];
+
+let surveyState = { answers: {}, photos: {}, open: 0 };
+
+async function renderSurvey() {
+  document.getElementById("fab").style.display = "none";
+  const data = await api("/survey");
+  surveyState.answers = {};
+  (data.answers || []).forEach(a => { surveyState.answers[a.question_key] = a.answer || ""; });
+  surveyState.photos = {};
+  (data.photos || []).forEach(p => { (surveyState.photos[p.question_key] ??= []).push(p); });
+
+  const allQs = SURVEY.flatMap(s => s.qs);
+  const answered = allQs.filter(q => (surveyState.answers[q.k] || "").trim()).length;
+  const stars = allQs.filter(q => q.star);
+  const starsDone = stars.filter(q => (surveyState.answers[q.k] || "").trim()).length;
+  const pct = Math.round(answered / allQs.length * 100);
+
+  document.getElementById("content").innerHTML = `
+    <div class="sv-intro">
+      <h3>Анкета салона</h3>
+      <p>Ответьте на вопросы — по ним AI-администратор будет говорить фактами и вашими словами, а не выдумывать. К любому вопросу можно прикрепить фото или скрин (прайс, примеры). Ответы сохраняются сами. Начните с помеченных <span style="color:#ffe">★</span>.</p>
+      <div class="sv-progress"><i style="width:${pct}%"></i></div>
+      <p style="margin-top:8px">Заполнено ${answered} из ${allQs.length}. Важных (★): ${starsDone} из ${stars.length}.</p>
+    </div>
+    ${SURVEY.map((sec, i) => {
+      const done = sec.qs.filter(q => (surveyState.answers[q.k] || "").trim()).length;
+      return `
+      <div class="sv-section ${i === surveyState.open ? "open" : ""}" id="sv_sec_${i}">
+        <div class="sv-head" onclick="toggleSurvey(${i})">
+          <h3>${sec.title}</h3>
+          <span class="sv-count">${done}/${sec.qs.length} <span class="chev">›</span></span>
+        </div>
+        <div class="sv-body">
+          ${sec.qs.map(q => surveyQuestionHtml(sec.title, q)).join("")}
+        </div>
+      </div>`;
+    }).join("")}
+  `;
+}
+
+function surveyQuestionHtml(section, q) {
+  const val = surveyState.answers[q.k] || "";
+  const photos = surveyState.photos[q.k] || [];
+  return `
+    <div class="sv-q ${val.trim() ? "filled" : ""}" id="sv_q_${q.k}">
+      <label>${q.star ? `<span class="star">★</span> ` : ""}${q.q}</label>
+      <textarea id="sv_a_${q.k}" placeholder="Ваш ответ..."
+        onblur="saveSurvey('${q.k}', ${JSON.stringify(section).replace(/"/g, "&quot;")}, ${JSON.stringify(q.q).replace(/"/g, "&quot;")})">${val}</textarea>
+      <div class="sv-photos" id="sv_ph_${q.k}">
+        ${photos.map(p => `<span class="sv-photo-wrap"><img src="${p.photo_url}" onclick="openLightbox([{photo_url:'${p.photo_url}'}],0)"><button onclick="deleteSurveyPhoto(${p.id},'${q.k}')">×</button></span>`).join("")}
+        <label class="sv-attach">📎 фото/скрин<input type="file" accept="image/*" multiple style="display:none" onchange="uploadSurveyPhotos('${q.k}', this.files)"></label>
+        <span class="sv-saved" id="sv_saved_${q.k}"></span>
+      </div>
+    </div>`;
+}
+
+function toggleSurvey(i) {
+  const el = document.getElementById(`sv_sec_${i}`);
+  el.classList.toggle("open");
+}
+
+let surveySaveTimers = {};
+async function saveSurvey(key, section, label) {
+  const answer = document.getElementById(`sv_a_${key}`).value;
+  await api("/survey", { method: "PUT", body: JSON.stringify({ question_key: key, section, label, answer }) });
+  surveyState.answers[key] = answer;
+  const q = document.getElementById(`sv_q_${key}`);
+  if (q) q.classList.toggle("filled", !!answer.trim());
+  const saved = document.getElementById(`sv_saved_${key}`);
+  if (saved) { saved.textContent = "сохранено"; setTimeout(() => { saved.textContent = ""; }, 1500); }
+}
+
+async function uploadSurveyPhotos(key, files) {
+  if (!files || !files.length) return;
+  const saved = document.getElementById(`sv_saved_${key}`);
+  for (const [i, original] of [...files].entries()) {
+    if (saved) saved.textContent = `загружаю ${i + 1}/${files.length}...`;
+    const file = await compressImage(original);
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_BASE}/survey/${key}/photos`, { method: "POST", headers: { "X-Admin-Token": ADMIN_TOKEN }, body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) { if (saved) saved.textContent = data.error || "ошибка"; return; }
+    (surveyState.photos[key] ??= []).push(data);
+  }
+  if (saved) saved.textContent = "";
+  renderSurveyPhotos(key);
+}
+
+function renderSurveyPhotos(key) {
+  const box = document.getElementById(`sv_ph_${key}`);
+  if (!box) return;
+  const photos = surveyState.photos[key] || [];
+  box.innerHTML =
+    photos.map(p => `<span class="sv-photo-wrap"><img src="${p.photo_url}" onclick="openLightbox([{photo_url:'${p.photo_url}'}],0)"><button onclick="deleteSurveyPhoto(${p.id},'${key}')">×</button></span>`).join("") +
+    `<label class="sv-attach">📎 фото/скрин<input type="file" accept="image/*" multiple style="display:none" onchange="uploadSurveyPhotos('${key}', this.files)"></label>` +
+    `<span class="sv-saved" id="sv_saved_${key}"></span>`;
+}
+
+async function deleteSurveyPhoto(id, key) {
+  await api(`/survey/photos/${id}`, { method: "DELETE" });
+  surveyState.photos[key] = (surveyState.photos[key] || []).filter(p => p.id !== id);
+  renderSurveyPhotos(key);
 }
 
 // ---------- ВХОД И РОЛИ ----------

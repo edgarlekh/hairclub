@@ -94,6 +94,15 @@ export async function getSalon(db, salonId) {
   return await db.prepare("SELECT * FROM salons WHERE id = ?").bind(salonId).first();
 }
 
+// Ответы владелицы из анкеты — фактура для агента (цены, правила, как отвечать)
+export async function getSurveyAnswers(db, salonId) {
+  const { results } = await db
+    .prepare("SELECT section, label, answer FROM survey_answers WHERE salon_id = ? AND answer IS NOT NULL AND TRIM(answer) != ''")
+    .bind(salonId)
+    .all();
+  return results;
+}
+
 // Мастера с их услугами — без этого агент не знает, к кому и на что записывать
 export async function retrieveEmployees(db, salonId) {
   const { results: employees } = await db
@@ -113,12 +122,13 @@ export async function retrieveEmployees(db, salonId) {
 }
 
 export async function retrieveContext(db, salonId, clientMessage) {
-  const [services, photos, faq, rules, employees] = await Promise.all([
+  const [services, photos, faq, rules, employees, survey] = await Promise.all([
     retrieveServices(db, salonId, clientMessage),
     retrievePhotos(db, salonId, clientMessage),
     retrieveFaq(db, salonId, clientMessage),
     getActiveRules(db, salonId),
     retrieveEmployees(db, salonId),
+    getSurveyAnswers(db, salonId),
   ]);
-  return { services, photos, faq, rules, employees };
+  return { services, photos, faq, rules, employees, survey };
 }

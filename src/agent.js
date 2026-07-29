@@ -136,6 +136,11 @@ function formatRules(rules) {
   return rules.map((r) => `- [${r.rule_type}] ${r.description}`).join("\n");
 }
 
+function formatSurvey(survey) {
+  if (!survey || !survey.length) return "(анкета салона пока не заполнена)";
+  return survey.map((s) => `• ${s.label}\n  ${String(s.answer).replace(/\n/g, "\n  ")}`).join("\n");
+}
+
 function formatBannedWords(bannedWords) {
   if (!bannedWords || !bannedWords.trim()) return "(особых запретов нет)";
   return bannedWords
@@ -198,6 +203,9 @@ ${formatFaq(context.faq)}
 
 АКТУАЛЬНЫЕ ОГРАНИЧЕНИЯ И ИНСТРУКЦИИ ВЛАДЕЛЬЦА (приоритет выше всего остального):
 ${formatRules(context.rules)}
+
+ЧТО РАССКАЗАЛА ВЛАДЕЛИЦА О САЛОНЕ (её ответы из анкеты — опирайся на них как на правду; если тут есть ответ, отвечай так, а не выдумывай):
+${formatSurvey(context.survey)}
 
 КАК ВЕСТИ ДИАЛОГ (очень важно, клиенты жалуются на навязчивость):
 - Реагируй на то, что человек реально написал, а не на то, что он «наверное хочет». Веди живой диалог, как администратор в переписке, а не выдавай справку.
