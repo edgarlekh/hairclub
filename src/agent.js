@@ -110,13 +110,13 @@ function todayInfo() {
   const hour = Number(parts.hour);
   const wd = { Monday: "понедельник", Tuesday: "вторник", Wednesday: "среда", Thursday: "четверг", Friday: "пятница", Saturday: "суббота", Sunday: "воскресенье" }[parts.weekday] || "";
 
-  let greeting;
-  if (hour >= 5 && hour < 12) greeting = "«Доброе утро»";
-  else if (hour >= 12 && hour < 17) greeting = "«Добрый день»";
-  else if (hour >= 17 && hour < 23) greeting = "«Добрый вечер»";
-  else greeting = "«Здравствуйте» (ночь — без «доброго утра/дня/вечера»)";
+  let partOfDay;
+  if (hour >= 5 && hour < 12) partOfDay = "«Доброе утро»";
+  else if (hour >= 12 && hour < 17) partOfDay = "«Добрый день»";
+  else if (hour >= 17 && hour < 23) partOfDay = "«Добрый вечер»";
+  else partOfDay = "«Добрый вечер»/«Здравствуйте»";
 
-  return `Сейчас в Варшаве ${date} (${wd}), время ${parts.hour}:${parts.minute}. Используй это для «сегодня/завтра/в субботу». Если здороваешься — по времени суток это ${greeting}. Не ошибись со временем суток.`;
+  return `Сейчас в Варшаве ${date} (${wd}), время ${parts.hour}:${parts.minute}. Используй это для «сегодня/завтра/в субботу». Если здороваешься — можно просто «Здравствуйте», оно уместно в любое время. Если хочешь по времени суток — сейчас это ${partOfDay}; главное не перепутать (не «добрый день» вечером). Безопаснее всего «Здравствуйте».`;
 }
 
 function formatPhotos(photos) {
