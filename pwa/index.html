@@ -132,6 +132,12 @@
   .agent-chat .msg { white-space: pre-wrap; }
   .agent-input { display: flex; gap: 8px; }
   .agent-input input { margin: 0; }
+  /* Плашка «TEST» на записях, созданных через тест-чат агента */
+  .test-tag { display: inline-block; background: var(--terracotta); color: #fff; font-size: 9px;
+              font-weight: 700; letter-spacing: .5px; padding: 1px 5px; border-radius: 4px; vertical-align: middle; }
+  .cal-ev.is-test { outline: 2px dashed rgba(255,255,255,.7); outline-offset: -3px; }
+  .cal-ev .test-tag { position: absolute; top: 2px; right: 2px; z-index: 2; }
+  .wk-ev.is-test { border-left-color: var(--terracotta) !important; background: #fbeee6; }
   .empty { text-align: center; color: var(--muted); padding: 40px 0; font-size: 14px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .chip { font-size: 11px; padding: 4px 10px; border-radius: 20px; background: var(--bg); border: 1px solid var(--border); color: var(--text); }
@@ -1228,11 +1234,12 @@ function renderCalColumn(emp, data, { from, to, gridH, posOf, isToday, color }) 
         const w = 100 / lanes;
         // Отменённые — блёклые, завершённые — приглушённый цвет, остальные — полный цвет мастера
         const bg = muted ? "#c9c2ba" : done ? color + "cc" : color;
-        return `<div class="cal-ev${muted ? " cancelled" : ""}"
+        return `<div class="cal-ev${muted ? " cancelled" : ""}${b.source === "test" ? " is-test" : ""}"
                      style="top:${posOf(s)}px;height:${Math.max(CAL_MIN_H, posOf(e) - posOf(s))}px;
                             left:calc(${lane * w}% + 3px); right:auto; width:calc(${w}% - 6px);
                             background:${bg}"
                      onclick='event.stopPropagation(); openVisitForm(${JSON.stringify(b).replace(/'/g, "&#39;")})' title="${fmtMinutes(s)}–${fmtMinutes(e)} · ${name} · ${label}">
+                  ${b.source === "test" ? `<span class="test-tag">TEST</span>` : ""}
                   <b>${fmtMinutes(s)} ${name}</b><i>${label}</i>
                   ${!muted && !done ? `<button class="ev-done" title="Завершить визит"
                      onclick='event.stopPropagation(); openQuickComplete(${JSON.stringify(b).replace(/'/g, "&#39;")})'>✓</button>` : ""}
@@ -1353,11 +1360,11 @@ function renderWeekDay(day, { colorById, nameById }) {
           const s = minutesOfDay(b.requested_datetime);
           const e = minutesOfDay(b.end_datetime) ?? (s + (b.duration_minutes || 60));
           return `
-            <div class="wk-ev${muted ? " cancelled" : ""}${done ? " done" : ""}" style="border-left-color:${color}"
+            <div class="wk-ev${muted ? " cancelled" : ""}${done ? " done" : ""}${b.source === "test" ? " is-test" : ""}" style="border-left-color:${color}"
                  onclick='openVisitForm(${JSON.stringify(b).replace(/'/g, "&#39;")})'>
               <div class="wk-time">${fmtMinutes(s)}<small>–${fmtMinutes(e)}</small></div>
               <div class="wk-body">
-                <div class="wk-name">${name}</div>
+                <div class="wk-name">${b.source === "test" ? `<span class="test-tag">TEST</span> ` : ""}${name}</div>
                 <div class="wk-serv">${label}</div>
                 <div class="wk-master"><span class="dot" style="background:${color}"></span>${nameById[b.employee_id] || ""}${b.charged_amount ? " · " + Math.round(b.charged_amount) + " PLN" : ""}</div>
               </div>
@@ -2435,8 +2442,10 @@ async function renderConversations() {
         <input id="agent_msg" placeholder="Например: сколько стоит кератин?" onkeydown="if(event.key==='Enter')sendAgentTest()">
         <button class="btn-primary" style="width:auto;margin:0" onclick="sendAgentTest()">➤</button>
       </div>
-      <button class="link-btn" onclick="resetAgentTest()">Начать диалог заново</button>
-    </div>`;
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">
+        <button class="link-btn" style="margin:0" onclick="resetAgentTest()">Начать диалог заново</button>
+        <button class="link-btn" style="margin:0;color:var(--terracotta)" onclick="cleanupAgentTest()">Удалить тестовые записи</button>
+      </div>`;
 
   content.innerHTML = testBox + (convs.length
     ? `<h3 class="sum-title">Диалоги с клиентами</h3>` + convs.filter(c => c.client_channel_id !== "panel-test").map(c => `
@@ -2482,6 +2491,13 @@ async function resetAgentTest() {
   await api("/agent/test/reset", { method: "POST" });
   agentChat = [];
   drawAgentChat();
+}
+
+async function cleanupAgentTest() {
+  if (!confirm("Удалить все записи, созданные через тест-чат? Настоящие записи клиентов не тронутся.")) return;
+  const res = await api("/agent/test/cleanup", { method: "POST" });
+  if (res.ok) alert(`Удалено тестовых записей: ${res.bookings}${res.clients ? `, тестовых клиентов: ${res.clients}` : ""}.`);
+  else alert(res.error || "Не удалось очистить");
 }
 
 async function openConversation(id) {

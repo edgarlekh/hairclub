@@ -62,7 +62,8 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
         .first();
     }
     try {
-      const result = await getAgentResponse(env, SALON_ID, conv.id, msg);
+      // Записи из теста помечаем source='test' — они выделяются в календаре и легко чистятся
+      const result = await getAgentResponse(env, SALON_ID, conv.id, msg, { bookingSource: "test" });
       return j(result);
     } catch (e) {
       // Чаще всего — не задан секрет ANTHROPIC_API_KEY
@@ -77,6 +78,36 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
       .bind(SALON_ID, TEST_CHANNEL)
       .run();
     return j({ ok: true });
+  }
+  // Удалить всё, что натворил тестовый диалог: записи (по conversation_id тест-чата)
+  // и фейковых клиентов, у которых после этого не осталось ни одной записи.
+  if (path === "/api/agent/test/cleanup" && method === "POST") {
+    if (!owner) return forbid();
+    const { results: bookings } = await db
+      .prepare(
+        `SELECT id, client_id FROM bookings
+         WHERE conversation_id IN (SELECT id FROM conversations WHERE salon_id=? AND client_channel_id=?)`
+      )
+      .bind(SALON_ID, TEST_CHANNEL)
+      .all();
+
+    const bookingIds = bookings.map((b) => b.id);
+    const clientIds = [...new Set(bookings.map((b) => b.client_id).filter(Boolean))];
+
+    for (const id of bookingIds) {
+      await db.prepare("DELETE FROM visit_photos WHERE booking_id=?").bind(id).run();
+      await db.prepare("DELETE FROM bookings WHERE id=?").bind(id).run();
+    }
+    // Клиента удаляем только если он остался совсем без записей (значит, был создан тестом)
+    let clientsDeleted = 0;
+    for (const cid of clientIds) {
+      const left = await db.prepare("SELECT COUNT(*) AS n FROM bookings WHERE client_id=?").bind(cid).first();
+      if (left.n === 0) {
+        await db.prepare("DELETE FROM clients WHERE id=?").bind(cid).run();
+        clientsDeleted++;
+      }
+    }
+    return j({ ok: true, bookings: bookingIds.length, clients: clientsDeleted });
   }
 
   // Кто вошёл — чтобы панель показала нужный набор вкладок

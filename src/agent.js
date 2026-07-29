@@ -208,7 +208,7 @@ async function saveMessage(db, conversationId, sender, content) {
     .run();
 }
 
-async function handleToolCall(db, toolName, toolInput, conversationId) {
+async function handleToolCall(db, toolName, toolInput, conversationId, bookingSource = "agent") {
   if (toolName === "get_available_slots") {
     const result = await getAvailableSlots(
       db,
@@ -227,6 +227,7 @@ async function handleToolCall(db, toolName, toolInput, conversationId) {
       dateStr: toolInput.date,
       timeStr: toolInput.time,
       conversationId,
+      source: bookingSource,
     });
     return result.ok
       ? `Запись успешно создана (id=${result.bookingId}).`
@@ -272,8 +273,9 @@ async function callAnthropic(env, systemPrompt, messages) {
   return res.json();
 }
 
-export async function getAgentResponse(env, salonId, conversationId, clientMessage) {
+export async function getAgentResponse(env, salonId, conversationId, clientMessage, opts = {}) {
   const db = env.DB;
+  const bookingSource = opts.bookingSource || "agent"; // тест-чат помечает записи 'test'
   const salon = await getSalon(db, salonId);
   const context = await retrieveContext(db, salonId, clientMessage);
   const systemPrompt = buildSystemPrompt(salon, context);
@@ -304,7 +306,7 @@ export async function getAgentResponse(env, salonId, conversationId, clientMessa
     const toolResults = [];
     for (const tu of toolUses) {
       if (tu.name === "attach_photo") attachedPhotos.push(tu.input.photo_id);
-      const result = await handleToolCall(db, tu.name, tu.input, conversationId);
+      const result = await handleToolCall(db, tu.name, tu.input, conversationId, bookingSource);
       toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: result });
     }
     messages.push({ role: "user", content: toolResults });
