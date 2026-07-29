@@ -2691,13 +2691,17 @@ function logout() {
 function applyAccess() {
   const staffTabs = ["calendar", "clients", "profile"];
   if (can("revenue") && !isOwner()) staffTabs.push("myrevenue");
+  // «Моя выручка» — личная вкладка сотрудницы, у владельца её быть не должно
+  const ownerHidden = ["myrevenue"];
   document.querySelectorAll("nav button").forEach((b) => {
     const tab = b.dataset.tab;
-    b.style.display = isOwner() || staffTabs.includes(tab) ? "" : "none";
+    const visible = isOwner() ? !ownerHidden.includes(tab) : staffTabs.includes(tab);
+    b.style.display = visible ? "" : "none";
   });
   const clientsBtn = document.querySelector('nav button[data-tab="clients"]');
   if (clientsBtn) clientsBtn.textContent = isOwner() ? "Клиенты" : "Мои клиенты";
-  if (!isOwner() && !staffTabs.includes(currentTab)) currentTab = "calendar";
+  const allowed = isOwner() ? !ownerHidden.includes(currentTab) : staffTabs.includes(currentTab);
+  if (!allowed) currentTab = "calendar";
 }
 
 function startApp() {
