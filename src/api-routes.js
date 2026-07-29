@@ -80,6 +80,25 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
     if (isOwnerOnly) return forbid();
   }
 
+  // Личная выручка сотрудницы — только её данные и только если это ей разрешено
+  if (path === "/api/my/summary" && method === "GET" && !owner) {
+    if (!perms.revenue) return forbid();
+    const from = url.searchParams.get("from") || new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+    const to = new Date().toISOString().slice(0, 10) + "T23:59";
+    const live = "status NOT IN ('cancelled','no_show') AND employee_id = ? AND requested_datetime >= ? AND requested_datetime <= ?";
+
+    const totals = await db
+      .prepare(`SELECT COUNT(*) AS visits, COALESCE(SUM(charged_amount),0) AS revenue, COUNT(DISTINCT client_id) AS clients FROM bookings WHERE ${live}`)
+      .bind(myEmp, from, to).first();
+
+    const { results: byDay } = await db
+      .prepare(`SELECT substr(requested_datetime,1,10) AS day, COUNT(*) AS visits, COALESCE(SUM(charged_amount),0) AS revenue
+                FROM bookings WHERE ${live} GROUP BY day ORDER BY day`)
+      .bind(myEmp, from, to).all();
+
+    return j({ from, totals, byDay });
+  }
+
   // --- Профиль салона ---
   if (path === "/api/salon" && method === "GET") {
     const salon = await db.prepare("SELECT * FROM salons WHERE id = ?").bind(SALON_ID).first();

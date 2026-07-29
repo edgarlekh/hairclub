@@ -414,6 +414,7 @@
   <button data-tab="services">Услуги</button>
   <button data-tab="employees">Мастера</button>
   <button data-tab="clients">Клиенты</button>
+  <button data-tab="myrevenue" style="display:none">Моя выручка</button>
   <button data-tab="summary">Сводка</button>
   <button data-tab="rules">Правила</button>
   <button data-tab="knowledge">База знаний</button>
@@ -2064,6 +2065,50 @@ async function deleteVisitPhoto(bookingId, photoId) {
   document.getElementById("photos_list").innerHTML = renderVisitPhotosList(photos, bookingId);
 }
 
+// ---------- МОЯ ВЫРУЧКА (личный отчёт сотрудницы) ----------
+let myPeriod = "month";
+
+async function renderMyRevenue() {
+  document.getElementById("fab").style.display = "none";
+  document.getElementById("content").innerHTML = `<div class="empty">Загрузка...</div>`;
+
+  const period = SUM_PERIODS.find(p => p.key === myPeriod);
+  const data = await api(`/my/summary?from=${periodFrom(period.days)}`);
+  if (data.error) { document.getElementById("content").innerHTML = `<p class="empty">${data.error}</p>`; return; }
+
+  const series = period.days > 40 ? groupByWeek(data.byDay)
+    : data.byDay.map(d => ({ label: d.day.slice(8) + "." + d.day.slice(5, 7), revenue: d.revenue, visits: d.visits, day: d.day }));
+  const maxS = Math.max(1, ...series.map(s => s.revenue));
+  const avg = data.totals.visits ? data.totals.revenue / data.totals.visits : 0;
+
+  document.getElementById("content").innerHTML = `
+    <div class="seg">
+      ${SUM_PERIODS.map(p => `<button class="${p.key === myPeriod ? "active" : ""}" onclick="setMyPeriod('${p.key}')">${p.label}</button>`).join("")}
+    </div>
+
+    <div class="sum-cards">
+      <div class="sum-card accent"><b>${money(data.totals.revenue)}</b><span>PLN заработала</span></div>
+      <div class="sum-card"><b>${data.totals.visits}</b><span>${plural(data.totals.visits, ["визит","визита","визитов"])}</span></div>
+      <div class="sum-card"><b>${data.totals.clients}</b><span>${plural(data.totals.clients, ["клиент","клиента","клиентов"])}</span></div>
+    </div>
+    <div class="sum-cards">
+      <div class="sum-card"><b>${money(avg)}</b><span>средний чек, PLN</span></div>
+    </div>
+
+    <h3 class="sum-title">Выручка по ${period.days > 40 ? "неделям" : "дням"}</h3>
+    <div class="chart-readout" id="ro_my">Нажми на столбик, чтобы увидеть сумму</div>
+    <div class="spark">
+      ${series.map(s => `<div class="col ${s.day === todayStr() ? "today" : ""}"
+        onclick="pickBar(this,'ro_my','${period.days > 40 ? "Неделя с " + s.label : s.label}','${money(s.revenue)} PLN · ${s.visits || 0} виз.')">
+        <div class="fill" style="height:${s.revenue / maxS * 100}%"></div></div>`).join("")}
+    </div>
+    ${series.length ? `<div class="spark-labels"><span>${series[0].label}</span><span>${series[series.length-1].label}</span></div>` : ""}
+    <p class="hint">Здесь только ваши записи и заработок. Данные салона и других мастеров вам не показываются.</p>
+  `;
+}
+
+function setMyPeriod(k) { myPeriod = k; renderMyRevenue(); }
+
 // ---------- СВОДКА (отчёты, retention, реактивация) ----------
 const SUM_PERIODS = [
   { key: "month", label: "Месяц", days: 30 },
@@ -2483,6 +2528,7 @@ function render() {
   document.getElementById("content").innerHTML = `<div class="empty">Загрузка...</div>`;
   const renderers = {
     calendar: renderCalendar,
+    myrevenue: renderMyRevenue,
     summary: renderSummary,
     services: renderServices,
     employees: renderEmployees,
@@ -2593,6 +2639,7 @@ function logout() {
 // Показываем вкладки под роль: сотрудница видит только записи, своих клиентов и свой профиль
 function applyAccess() {
   const staffTabs = ["calendar", "clients", "profile"];
+  if (can("revenue") && !isOwner()) staffTabs.push("myrevenue");
   document.querySelectorAll("nav button").forEach((b) => {
     const tab = b.dataset.tab;
     b.style.display = isOwner() || staffTabs.includes(tab) ? "" : "none";
