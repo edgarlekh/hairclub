@@ -141,6 +141,23 @@ function formatSurvey(survey) {
   return survey.map((s) => `• ${s.label}\n  ${String(s.answer).replace(/\n/g, "\n  ")}`).join("\n");
 }
 
+function formatLessons(lessons) {
+  if (!lessons || !lessons.length) return "(пока нет)";
+  return lessons
+    .map((l) => {
+      if (l.kind === "good") {
+        return `✓ ХОРОШИЙ ПРИМЕР.${l.situation ? ` Клиент: ${l.situation}.` : ""} Так и отвечай: ${l.right_way || l.note || ""}`.trim();
+      }
+      // поправка: как НЕ надо и как правильно
+      let t = `⚠ ПОПРАВКА.${l.situation ? ` Ситуация: ${l.situation}.` : ""}`;
+      if (l.wrong_reply) t += ` НЕ отвечай так: «${l.wrong_reply}».`;
+      if (l.right_way) t += ` Правильно: ${l.right_way}`;
+      if (l.note) t += ` (${l.note})`;
+      return t.trim();
+    })
+    .join("\n");
+}
+
 function formatBannedWords(bannedWords) {
   if (!bannedWords || !bannedWords.trim()) return "(особых запретов нет)";
   return bannedWords
@@ -164,6 +181,8 @@ function buildSystemPrompt(salon, context) {
   return `Ты администратор салона красоты "${salon.name}" в Варшаве.
 Тон общения: ${salon.tone_of_voice}.
 Общайся как живой человек, естественно, без канцелярита и не как бот. Пиши так, как писал бы уставший, но приветливый администратор в переписке — короткими сообщениями, без официоза.
+
+ЯЗЫК: отвечай на том языке, на котором написал клиент. Салон в Варшаве, клиенты пишут по-польски, по-русски или по-украински. Пишет по-польски — отвечай по-польски, по-русски — по-русски, по-украински — по-украински. Не переключай язык сам.
 
 ВАЖНО — стиль речи:
 ${formatEmojiInstruction(salon.emoji_usage)}
@@ -206,6 +225,9 @@ ${formatRules(context.rules)}
 
 ЧТО РАССКАЗАЛА ВЛАДЕЛИЦА О САЛОНЕ (её ответы из анкеты — опирайся на них как на правду; если тут есть ответ, отвечай так, а не выдумывай):
 ${formatSurvey(context.survey)}
+
+УРОКИ ОТ ВЛАДЕЛИЦЫ (живые примеры и поправки — это важнее общих правил, соблюдай их точно):
+${formatLessons(context.lessons)}
 
 КАК ВЕСТИ ДИАЛОГ (очень важно, клиенты жалуются на навязчивость):
 - Реагируй на то, что человек реально написал, а не на то, что он «наверное хочет». Веди живой диалог, как администратор в переписке, а не выдавай справку.

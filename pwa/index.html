@@ -132,6 +132,20 @@
   .agent-chat .msg { white-space: pre-wrap; }
   .agent-input { display: flex; gap: 8px; }
   .agent-input input { margin: 0; }
+  .fix-btn { display: block; margin-top: 5px; background: none; border: none; padding: 0; width: auto;
+             color: var(--gold-mid); font-size: 11px; font-weight: 600; cursor: pointer; }
+  .fix-btn:hover { text-decoration: underline; }
+  /* Уроки агента */
+  .lesson { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 8px; background: white; }
+  .lesson.good { border-left: 4px solid #6f9b6f; }
+  .lesson.fix { border-left: 4px solid var(--terracotta); }
+  .lesson .l-kind { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+  .lesson.good .l-kind { color: #6f9b6f; }
+  .lesson.fix .l-kind { color: var(--terracotta); }
+  .lesson .l-row { font-size: 13px; margin-top: 4px; }
+  .lesson .l-row b { color: var(--muted); font-weight: 600; }
+  .lesson-photos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .lesson-photos img { width: 54px; height: 54px; object-fit: cover; border-radius: 8px; cursor: zoom-in; }
   /* Плашка «TEST» на записях, созданных через тест-чат агента */
   .test-tag { display: inline-block; background: var(--terracotta); color: #fff; font-size: 9px;
               font-weight: 700; letter-spacing: .5px; padding: 1px 5px; border-radius: 4px; vertical-align: middle; }
@@ -2475,7 +2489,17 @@ async function renderConversations() {
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">
         <button class="link-btn" style="margin:0" onclick="resetAgentTest()">Начать диалог заново</button>
         <button class="link-btn" style="margin:0;color:var(--terracotta)" onclick="cleanupAgentTest()">Удалить тестовые записи</button>
-      </div>`;
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <h3 style="margin:0">Чему научили агента</h3>
+        <button class="btn-primary" style="width:auto;margin:0;padding:8px 14px" onclick="openLessonForm()">+ Пример</button>
+      </div>
+      <p class="hint">Примеры реальных переписок и поправки. Бот на них учится вашему стилю. Скрин можно приложить, но текстом суть важнее — по тексту бот учится.</p>
+      <div id="lessons_list"></div>
+    </div>`;
 
   content.innerHTML = testBox + (convs.length
     ? `<h3 class="sum-title">Диалоги с клиентами</h3>` + convs.filter(c => c.client_channel_id !== "panel-test").map(c => `
@@ -2492,15 +2516,54 @@ async function renderConversations() {
     : `<p class="empty" style="margin-top:8px">Диалогов с клиентами пока нет.</p>`);
 
   drawAgentChat();
+  renderLessons();
 }
 
 function drawAgentChat() {
   const box = document.getElementById("agent_chat");
   if (!box) return;
   box.innerHTML = agentChat.length
-    ? agentChat.map(m => `<div class="msg ${m.role === "you" ? "client" : "agent"}">${m.text}</div>`).join("")
+    ? agentChat.map((m, i) => {
+        if (m.role === "you") return `<div class="msg client">${m.text}</div>`;
+        const real = m.text !== "…" && !m.text.startsWith("⚠");
+        return `<div class="msg agent">${m.text}${real ? `<button class="fix-btn" onclick="correctBotReply(${i})">✎ поправить</button>` : ""}</div>`;
+      }).join("")
     : `<div class="empty" style="padding:14px">Напишите первое сообщение</div>`;
   box.scrollTop = box.scrollHeight;
+}
+
+// Владелица правит ответ бота — это становится уроком, который агент соблюдает
+function correctBotReply(i) {
+  const bot = agentChat[i];
+  const client = i > 0 ? agentChat[i - 1].text : "";
+  openModal(`
+    <h2>Поправить ответ</h2>
+    <p class="hint">Бот ответил так — а как надо было? Он запомнит и больше не будет так отвечать.</p>
+    <label>Клиент написал</label>
+    <div class="chosen-line" style="white-space:pre-wrap">${client || "—"}</div>
+    <label>Бот ответил (так неправильно)</label>
+    <div class="chosen-line" style="white-space:pre-wrap;color:var(--terracotta)">${bot.text}</div>
+    <label>Как надо было ответить?</label>
+    <textarea id="fix_right" rows="3" placeholder="Напишите правильный ответ или что исправить"></textarea>
+    <label>Почему так неправильно (необязательно)</label>
+    <input id="fix_note" placeholder="например: не нужно писать «уточню у мастера», просто ответить">
+    <div class="form-actions">
+      <button class="btn-secondary" onclick="closeModal()">Отмена</button>
+      <button class="btn-primary" onclick="saveCorrection(${JSON.stringify(client).replace(/"/g, '&quot;')}, ${JSON.stringify(bot.text).replace(/"/g, '&quot;')})">Сохранить урок</button>
+    </div>
+  `);
+}
+
+async function saveCorrection(situation, wrongReply) {
+  const right = document.getElementById("fix_right").value.trim();
+  const note = document.getElementById("fix_note").value.trim();
+  if (!right && !note) { alert("Напишите, как надо было ответить"); return; }
+  await api("/agent/lessons", { method: "POST", body: JSON.stringify({
+    kind: "fix", situation, wrong_reply: wrongReply, right_way: right, note, source: "testchat",
+  })});
+  closeModal();
+  renderLessons();
+  alert("Урок сохранён. Бот учтёт это в следующих ответах.");
 }
 
 async function sendAgentTest() {
@@ -2521,6 +2584,103 @@ async function resetAgentTest() {
   await api("/agent/test/reset", { method: "POST" });
   agentChat = [];
   drawAgentChat();
+}
+
+// ---------- УРОКИ АГЕНТА (примеры и поправки) ----------
+async function renderLessons() {
+  const box = document.getElementById("lessons_list");
+  if (!box) return;
+  const lessons = await api("/agent/lessons");
+  if (!lessons.length) { box.innerHTML = `<p class="empty" style="padding:10px">Пока пусто. Добавьте примеры своих переписок или поправляйте бота в тест-чате.</p>`; return; }
+  box.innerHTML = lessons.map(l => `
+    <div class="lesson ${l.kind}">
+      <div style="display:flex;justify-content:space-between;gap:8px">
+        <span class="l-kind">${l.kind === "good" ? "✓ хороший пример" : "⚠ поправка"}${l.source === "testchat" ? " · из теста" : ""}</span>
+        <span>
+          <button class="link-btn" style="margin:0" onclick='openLessonForm(${attrJson(l)})'>изменить</button>
+          <button class="link-btn" style="margin:0 0 0 10px;color:var(--terracotta)" onclick="deleteLesson(${l.id})">удалить</button>
+        </span>
+      </div>
+      ${l.situation ? `<div class="l-row"><b>Клиент:</b> ${l.situation}</div>` : ""}
+      ${l.wrong_reply ? `<div class="l-row"><b>Так неправильно:</b> ${l.wrong_reply}</div>` : ""}
+      ${l.right_way ? `<div class="l-row"><b>Как надо:</b> ${l.right_way}</div>` : ""}
+      ${l.note ? `<div class="l-row" style="color:var(--muted)">${l.note}</div>` : ""}
+      <div class="lesson-photos" id="lp_${l.id}">
+        ${(l.photos || []).map(p => `<span class="sv-photo-wrap"><img src="${p.photo_url}" onclick="openLightbox([{photo_url:'${p.photo_url}'}],0)"><button onclick="deleteLessonPhoto(${p.id},${l.id})">×</button></span>`).join("")}
+        <label class="sv-attach">📎 скрин<input type="file" accept="image/*" multiple style="display:none" onchange="uploadLessonPhotos(${l.id}, this.files)"></label>
+      </div>
+    </div>
+  `).join("");
+}
+
+function openLessonForm(lesson = {}) {
+  const isEdit = !!lesson.id;
+  const kind = lesson.kind || "good";
+  openModal(`
+    <h2>${isEdit ? "Изменить урок" : "Пример или поправка"}</h2>
+    <label>Тип</label>
+    <div class="seg" id="lf_kind">
+      <button type="button" class="${kind === "good" ? "active" : ""}" onclick="lfKind('good',this)">Хороший пример</button>
+      <button type="button" class="${kind === "fix" ? "active" : ""}" onclick="lfKind('fix',this)">Поправка</button>
+    </div>
+    <label>Что написал клиент / ситуация</label>
+    <textarea id="lf_sit" rows="2" placeholder="например: спрашивает, вредно ли для волос">${lesson.situation || ""}</textarea>
+    <label>Как надо ответить (или хороший ответ)</label>
+    <textarea id="lf_right" rows="3" placeholder="как отвечаешь ты сама">${lesson.right_way || ""}</textarea>
+    <label>Так НЕ надо (необязательно)</label>
+    <textarea id="lf_wrong" rows="2" placeholder="неудачный ответ, если есть">${lesson.wrong_reply || ""}</textarea>
+    <label>Заметка (необязательно)</label>
+    <input id="lf_note" value="${lesson.note || ""}" placeholder="например: не писать «уточню у мастера»">
+    <div class="form-actions">
+      <button class="btn-secondary" onclick="closeModal()">Отмена</button>
+      <button class="btn-primary" onclick="saveLesson(${lesson.id || "null"})">Сохранить</button>
+    </div>
+    ${isEdit ? `<p class="hint" style="margin-top:10px">Скрины к этому уроку прикрепляются в списке, после сохранения.</p>` : `<p class="hint" style="margin-top:10px">Сохраните — потом сможете прикрепить скрин переписки.</p>`}
+  `);
+  window.__lfKind = kind;
+}
+function lfKind(k, el) {
+  window.__lfKind = k;
+  el.parentElement.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+  el.classList.add("active");
+}
+
+async function saveLesson(id) {
+  const payload = {
+    kind: window.__lfKind || "good",
+    situation: document.getElementById("lf_sit").value.trim(),
+    right_way: document.getElementById("lf_right").value.trim(),
+    wrong_reply: document.getElementById("lf_wrong").value.trim(),
+    note: document.getElementById("lf_note").value.trim(),
+    source: "manual",
+  };
+  if (!payload.right_way && !payload.note) { alert("Напишите, как надо отвечать"); return; }
+  if (id) await api(`/agent/lessons/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+  else await api("/agent/lessons", { method: "POST", body: JSON.stringify(payload) });
+  closeModal();
+  renderLessons();
+}
+
+async function deleteLesson(id) {
+  if (!confirm("Удалить этот урок?")) return;
+  await api(`/agent/lessons/${id}`, { method: "DELETE" });
+  renderLessons();
+}
+
+async function uploadLessonPhotos(id, files) {
+  if (!files || !files.length) return;
+  for (const original of files) {
+    const file = await compressImage(original);
+    const form = new FormData();
+    form.append("file", file);
+    await fetch(`${API_BASE}/agent/lessons/${id}/photos`, { method: "POST", headers: { "X-Admin-Token": ADMIN_TOKEN }, body: form });
+  }
+  renderLessons();
+}
+
+async function deleteLessonPhoto(photoId) {
+  await api(`/agent/lessons/photos/${photoId}`, { method: "DELETE" });
+  renderLessons();
 }
 
 async function cleanupAgentTest() {

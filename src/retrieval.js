@@ -103,6 +103,15 @@ export async function getSurveyAnswers(db, salonId) {
   return results;
 }
 
+// Уроки от владелицы: примеры и поправки. Самое ценное для «живого» бота.
+export async function getLessons(db, salonId, limit = 40) {
+  const { results } = await db
+    .prepare("SELECT kind, situation, wrong_reply, right_way, note FROM agent_training WHERE salon_id = ? ORDER BY created_at DESC LIMIT ?")
+    .bind(salonId, limit)
+    .all();
+  return results;
+}
+
 // Мастера с их услугами — без этого агент не знает, к кому и на что записывать
 export async function retrieveEmployees(db, salonId) {
   const { results: employees } = await db
@@ -122,13 +131,14 @@ export async function retrieveEmployees(db, salonId) {
 }
 
 export async function retrieveContext(db, salonId, clientMessage) {
-  const [services, photos, faq, rules, employees, survey] = await Promise.all([
+  const [services, photos, faq, rules, employees, survey, lessons] = await Promise.all([
     retrieveServices(db, salonId, clientMessage),
     retrievePhotos(db, salonId, clientMessage),
     retrieveFaq(db, salonId, clientMessage),
     getActiveRules(db, salonId),
     retrieveEmployees(db, salonId),
     getSurveyAnswers(db, salonId),
+    getLessons(db, salonId),
   ]);
-  return { services, photos, faq, rules, employees, survey };
+  return { services, photos, faq, rules, employees, survey, lessons };
 }

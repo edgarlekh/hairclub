@@ -1095,6 +1095,79 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
     return j({ ok: true });
   }
 
+  // --- Уроки для агента (примеры и поправки) ---
+  if (path === "/api/agent/lessons" && method === "GET") {
+    if (!owner) return forbid();
+    const { results: lessons } = await db
+      .prepare("SELECT * FROM agent_training WHERE salon_id = ? ORDER BY created_at DESC")
+      .bind(SALON_ID).all();
+    const { results: photos } = await db
+      .prepare("SELECT id, training_id, photo_url FROM training_photos WHERE salon_id = ?")
+      .bind(SALON_ID).all();
+    const presented = await presentPhotos(photos, request, env);
+    const byLesson = {};
+    for (const p of presented) (byLesson[p.training_id] ??= []).push(p);
+    for (const l of lessons) l.photos = byLesson[l.id] || [];
+    return j(lessons);
+  }
+  if (path === "/api/agent/lessons" && method === "POST") {
+    if (!owner) return forbid();
+    const b = await request.json();
+    const result = await db
+      .prepare(
+        `INSERT INTO agent_training (salon_id, kind, situation, wrong_reply, right_way, note, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`
+      )
+      .bind(SALON_ID, b.kind === "good" ? "good" : "fix", b.situation || null, b.wrong_reply || null, b.right_way || null, b.note || null, b.source || "manual")
+      .first();
+    return j({ id: result.id });
+  }
+  const lessonMatch = path.match(/^\/api\/agent\/lessons\/(\d+)$/);
+  if (lessonMatch && method === "PUT") {
+    if (!owner) return forbid();
+    const b = await request.json();
+    await db
+      .prepare("UPDATE agent_training SET kind=?, situation=?, wrong_reply=?, right_way=?, note=? WHERE id=? AND salon_id=?")
+      .bind(b.kind === "good" ? "good" : "fix", b.situation || null, b.wrong_reply || null, b.right_way || null, b.note || null, lessonMatch[1], SALON_ID)
+      .run();
+    return j({ ok: true });
+  }
+  if (lessonMatch && method === "DELETE") {
+    if (!owner) return forbid();
+    const { results: ph } = await db.prepare("SELECT photo_url FROM training_photos WHERE training_id=?").bind(lessonMatch[1]).all();
+    for (const p of ph) if (isStoredPhoto(p.photo_url) && env.PHOTOS) await env.PHOTOS.delete(storedKey(p.photo_url));
+    await db.prepare("DELETE FROM training_photos WHERE training_id=?").bind(lessonMatch[1]).run();
+    await db.prepare("DELETE FROM agent_training WHERE id=? AND salon_id=?").bind(lessonMatch[1], SALON_ID).run();
+    return j({ ok: true });
+  }
+  const lessonPhotoMatch = path.match(/^\/api\/agent\/lessons\/(\d+)\/photos$/);
+  if (lessonPhotoMatch && method === "POST") {
+    if (!owner) return forbid();
+    if (!env.PHOTOS) return j({ error: "Хранилище фото не подключено" }, 500);
+    const tid = lessonPhotoMatch[1];
+    const form = await request.formData();
+    const file = form.get("file");
+    if (!file || typeof file === "string") return j({ error: "Файл не получен" }, 400);
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) return j({ error: "Только фото: JPEG, PNG, WebP или HEIC" }, 400);
+    if (file.size > MAX_PHOTO_BYTES) return j({ error: `Фото больше ${Math.round(MAX_PHOTO_BYTES / 1024 / 1024)} МБ` }, 400);
+    const ext = (file.name || "").match(/\.[a-z0-9]+$/i)?.[0] || extForType(file.type);
+    const key = `training/${tid}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+    await env.PHOTOS.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
+    const result = await db
+      .prepare("INSERT INTO training_photos (salon_id, training_id, photo_url) VALUES (?, ?, ?) RETURNING id")
+      .bind(SALON_ID, tid, toStoredPhoto(key)).first();
+    const [saved] = await presentPhotos([{ id: result.id, training_id: tid, photo_url: toStoredPhoto(key) }], request, env);
+    return j(saved);
+  }
+  const lessonPhotoDelMatch = path.match(/^\/api\/agent\/lessons\/photos\/(\d+)$/);
+  if (lessonPhotoDelMatch && method === "DELETE") {
+    if (!owner) return forbid();
+    const row = await db.prepare("SELECT photo_url FROM training_photos WHERE id=?").bind(lessonPhotoDelMatch[1]).first();
+    if (row && isStoredPhoto(row.photo_url) && env.PHOTOS) await env.PHOTOS.delete(storedKey(row.photo_url));
+    await db.prepare("DELETE FROM training_photos WHERE id=?").bind(lessonPhotoDelMatch[1]).run();
+    return j({ ok: true });
+  }
+
   // --- Диалоги (просмотр + вмешательство владельца) ---
   if (path === "/api/conversations" && method === "GET") {
     const { results } = await db
