@@ -5,6 +5,7 @@
 
 import { DAY_NAMES } from "./booking-slots.js";
 import { presentPhotos, toStoredPhoto, isStoredPhoto, storedKey } from "./photo-links.js";
+import { hashPassword, verifyPassword, DEFAULT_PERMS, parsePerms } from "./auth.js";
 
 function j(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
@@ -31,10 +32,53 @@ function extForType(type) {
            "image/heic": ".heic", "image/heif": ".heif" }[type] || ".jpg";
 }
 
-export async function handleApiRequest(request, env, path) {
+export async function handleApiRequest(request, env, path, auth = { role: "owner" }) {
   const db = env.DB;
   const method = request.method;
   const url = new URL(request.url);
+
+  const owner = auth.role === "owner";
+  const perms = auth.perms || {};
+  const myEmp = auth.employeeId || null;
+  const forbid = () => j({ error: "Недостаточно прав" }, 403);
+
+  // Кто вошёл — чтобы панель показала нужный набор вкладок
+  if (path === "/api/auth/me" && method === "GET") {
+    return j(owner
+      ? { role: "owner" }
+      : { role: "staff", employee_id: myEmp, permissions: perms });
+  }
+
+  // Смена собственного пароля сотрудницей
+  if (path === "/api/auth/password" && method === "POST" && !owner) {
+    const b = await request.json();
+    const acc = await db.prepare("SELECT password_hash, password_salt FROM staff_accounts WHERE id = ?").bind(auth.accountId).first();
+    const ok = acc && (await verifyPassword(String(b.old || ""), acc.password_salt, acc.password_hash));
+    if (!ok) return j({ error: "Старый пароль неверный" }, 400);
+    if (String(b.new || "").length < 4) return j({ error: "Новый пароль слишком короткий" }, 400);
+    const { hash, salt } = await hashPassword(String(b.new));
+    await db.prepare("UPDATE staff_accounts SET password_hash=?, password_salt=? WHERE id=?").bind(hash, salt, auth.accountId).run();
+    return j({ ok: true });
+  }
+
+  // Всё, что доступно только владелице. Сотрудницам — 403 ещё до обработчика.
+  if (!owner) {
+    const isOwnerOnly =
+      path === "/api/analytics" ||
+      path === "/api/clients/dormant" ||
+      path === "/api/clients/birthdays" ||
+      path === "/api/calendar/summary" ||
+      path.startsWith("/api/rules") ||
+      path.startsWith("/api/knowledge") ||
+      path.startsWith("/api/conversations") ||
+      /^\/api\/employees\/\d+\/account/.test(path) ||
+      (path === "/api/salon" && method !== "GET") ||
+      (path === "/api/employees" && method !== "GET") ||
+      (/^\/api\/employees\/\d+$/.test(path) && method !== "GET") ||
+      (path.startsWith("/api/services") && method !== "GET") ||
+      (path.startsWith("/api/service-categories") && method !== "GET");
+    if (isOwnerOnly) return forbid();
+  }
 
   // --- Профиль салона ---
   if (path === "/api/salon" && method === "GET") {
@@ -222,7 +266,62 @@ export async function handleApiRequest(request, env, path) {
     await db.prepare("DELETE FROM employee_services WHERE employee_id=?").bind(id).run();
     await db.prepare("DELETE FROM employee_schedule WHERE employee_id=?").bind(id).run();
     await db.prepare("DELETE FROM employee_time_off WHERE employee_id=?").bind(id).run();
+    await db.prepare("DELETE FROM staff_accounts WHERE employee_id=?").bind(id).run();
     await db.prepare("DELETE FROM employees WHERE id=?").bind(id).run();
+    return j({ ok: true });
+  }
+
+  // --- Аккаунт сотрудницы (только владелица) ---
+  const accountMatch = path.match(/^\/api\/employees\/(\d+)\/account$/);
+  if (accountMatch && method === "GET") {
+    const acc = await db
+      .prepare("SELECT id, username, role, permissions, active FROM staff_accounts WHERE employee_id = ?")
+      .bind(accountMatch[1])
+      .first();
+    // Пароль не отдаём никогда — только факт, что аккаунт есть.
+    // Для нового аккаунта подставляем разумные значения по умолчанию.
+    return j(acc
+      ? { ...acc, permissions: parsePerms(acc.permissions), has_account: true }
+      : { has_account: false, permissions: DEFAULT_PERMS });
+  }
+  if (accountMatch && method === "PUT") {
+    const employeeId = accountMatch[1];
+    const b = await request.json();
+    const username = String(b.username || "").trim();
+    if (!username) return j({ error: "Укажите логин" }, 400);
+
+    // Логин не должен принадлежать другой сотруднице
+    const clash = await db
+      .prepare("SELECT id FROM staff_accounts WHERE lower(username) = lower(?) AND employee_id != ?")
+      .bind(username, employeeId)
+      .first();
+    if (clash) return j({ error: "Такой логин уже занят" }, 400);
+
+    const perms = JSON.stringify({ ...DEFAULT_PERMS, ...(b.permissions || {}) });
+    const existing = await db.prepare("SELECT id FROM staff_accounts WHERE employee_id = ?").bind(employeeId).first();
+
+    if (existing) {
+      // Пароль меняем только если прислали новый
+      if (b.password) {
+        const { hash, salt } = await hashPassword(String(b.password));
+        await db.prepare("UPDATE staff_accounts SET username=?, password_hash=?, password_salt=?, permissions=?, active=? WHERE employee_id=?")
+          .bind(username, hash, salt, perms, b.active === false ? 0 : 1, employeeId).run();
+      } else {
+        await db.prepare("UPDATE staff_accounts SET username=?, permissions=?, active=? WHERE employee_id=?")
+          .bind(username, perms, b.active === false ? 0 : 1, employeeId).run();
+      }
+      return j({ ok: true });
+    }
+
+    if (!b.password || String(b.password).length < 4) return j({ error: "Задайте пароль (минимум 4 символа)" }, 400);
+    const { hash, salt } = await hashPassword(String(b.password));
+    await db.prepare(
+      "INSERT INTO staff_accounts (salon_id, employee_id, username, password_hash, password_salt, role, permissions, active) VALUES (?, ?, ?, ?, ?, 'staff', ?, 1)"
+    ).bind(SALON_ID, employeeId, username, hash, salt, perms).run();
+    return j({ ok: true });
+  }
+  if (accountMatch && method === "DELETE") {
+    await db.prepare("DELETE FROM staff_accounts WHERE employee_id = ?").bind(accountMatch[1]).run();
     return j({ ok: true });
   }
 
@@ -286,12 +385,36 @@ export async function handleApiRequest(request, env, path) {
       .bind(lastStr, date)
       .all();
 
+    // Сотрудница со «своими» записями видит только свою колонку, и без сумм,
+    // если это ей не разрешено. Всё режем на сервере, не полагаясь на панель.
+    if (!owner) {
+      let emp = employees, sch = schedules, bk = bookings, off = timeOff;
+      if (perms.scope !== "all") {
+        emp = employees.filter((e) => e.id === myEmp);
+        sch = schedules.filter((s) => s.employee_id === myEmp);
+        bk = bookings.filter((b) => b.employee_id === myEmp);
+        off = timeOff.filter((t) => t.employee_id === myEmp);
+      }
+      if (!perms.prices) bk = bk.map((b) => ({ ...b, charged_amount: null, price_min: null, price_max: null }));
+      if (!perms.phone) bk = bk.map((b) => ({ ...b, client_phone: null }));
+      return j({ date, days, lastDay: lastStr, weekday, employees: emp, schedules: sch, bookings: bk, timeOff: off });
+    }
+
     return j({ date, days, lastDay: lastStr, weekday, employees, schedules, bookings, timeOff });
   }
 
   // Быстрая смена статуса визита — не трогаем остальные поля записи
+  // Сотрудница правит только свои записи и только если ей это разрешено
+  async function staffMayEditBooking(bookingId) {
+    if (owner) return true;
+    if (!perms.edit) return false;
+    const row = await db.prepare("SELECT employee_id FROM bookings WHERE id = ?").bind(bookingId).first();
+    return row && row.employee_id === myEmp;
+  }
+
   const statusMatch = path.match(/^\/api\/bookings\/(\d+)\/status$/);
   if (statusMatch && method === "POST") {
+    if (!(await staffMayEditBooking(statusMatch[1]))) return forbid();
     const b = await request.json();
     if (!b.status) return j({ error: "Нужен статус" }, 400);
     if (b.charged_amount === undefined || b.charged_amount === null) {
@@ -333,6 +456,8 @@ export async function handleApiRequest(request, env, path) {
   }
   if (scheduleMatch && method === "PUT") {
     const id = scheduleMatch[1];
+    // Сотрудница правит только свой график и только если разрешено
+    if (!owner && (!perms.schedule || Number(id) !== myEmp)) return forbid();
     const b = await request.json();
     const days = Array.isArray(b.days) ? b.days : [];
     for (const d of days) {
@@ -361,6 +486,7 @@ export async function handleApiRequest(request, env, path) {
     return j(results);
   }
   if (timeOffMatch && method === "POST") {
+    if (!owner && (!perms.schedule || Number(timeOffMatch[1]) !== myEmp)) return forbid();
     const b = await request.json();
     if (!b.date) return j({ error: "Нужна дата" }, 400);
     // date_end пишем только для настоящего диапазона (последний день позже первого)
@@ -375,6 +501,7 @@ export async function handleApiRequest(request, env, path) {
   }
   const timeOffItemMatch = path.match(/^\/api\/employees\/(\d+)\/time-off\/(\d+)$/);
   if (timeOffItemMatch && method === "DELETE") {
+    if (!owner && (!perms.schedule || Number(timeOffItemMatch[1]) !== myEmp)) return forbid();
     await db
       .prepare("DELETE FROM employee_time_off WHERE id=? AND employee_id=?")
       .bind(timeOffItemMatch[2], timeOffItemMatch[1])
@@ -427,16 +554,19 @@ export async function handleApiRequest(request, env, path) {
   // --- Клиенты ---
   if (path === "/api/clients" && method === "GET") {
     const q = new URL(request.url).searchParams.get("q");
+    // Сотрудница видит только своих клиентов — тех, кого сама обслуживала.
+    // Всю базу салона (чужие телефоны) ей не отдаём.
+    const scope = owner
+      ? "salon_id = ?"
+      : "salon_id = ? AND id IN (SELECT DISTINCT client_id FROM bookings WHERE employee_id = ? AND client_id IS NOT NULL)";
+    const binds = owner ? [SALON_ID] : [SALON_ID, myEmp];
     const query = q
-      ? db
-          .prepare(
-            "SELECT id, full_name, phone, email FROM clients WHERE salon_id = ? AND (full_name LIKE ? OR phone LIKE ?) ORDER BY full_name LIMIT 200"
-          )
-          .bind(SALON_ID, `%${q}%`, `%${q}%`)
-      : db
-          .prepare("SELECT id, full_name, phone, email FROM clients WHERE salon_id = ? ORDER BY full_name LIMIT 200")
-          .bind(SALON_ID);
-    const { results } = await query.all();
+      ? db.prepare(`SELECT id, full_name, phone, email FROM clients WHERE ${scope} AND (full_name LIKE ? OR phone LIKE ?) ORDER BY full_name LIMIT 200`)
+          .bind(...binds, `%${q}%`, `%${q}%`)
+      : db.prepare(`SELECT id, full_name, phone, email FROM clients WHERE ${scope} ORDER BY full_name LIMIT 200`)
+          .bind(...binds);
+    let { results } = await query.all();
+    if (!owner && !perms.phone) results = results.map((c) => ({ ...c, phone: null }));
     return j(results);
   }
 
@@ -597,10 +727,22 @@ export async function handleApiRequest(request, env, path) {
       .first();
     return j({ id: result.id });
   }
+  // Сотрудница может открывать только своих клиентов
+  async function staffMayTouchClient(clientId) {
+    if (owner) return true;
+    const row = await db
+      .prepare("SELECT 1 FROM bookings WHERE client_id = ? AND employee_id = ? LIMIT 1")
+      .bind(clientId, myEmp)
+      .first();
+    return !!row;
+  }
+
   const clientMatch = path.match(/^\/api\/clients\/(\d+)$/);
   if (clientMatch && method === "GET") {
+    if (!(await staffMayTouchClient(clientMatch[1]))) return forbid();
     const client = await db.prepare("SELECT * FROM clients WHERE id = ?").bind(clientMatch[1]).first();
     if (!client) return j({ error: "Клиент не найден" }, 404);
+    if (!owner && !perms.phone) { client.phone = null; client.email = null; }
 
     // Последняя формула — чтобы мастер видел её сразу, не листая историю визитов
     const lastFormula = await db
@@ -616,6 +758,7 @@ export async function handleApiRequest(request, env, path) {
     return j({ ...client, last_formula: lastFormula || null });
   }
   if (clientMatch && method === "PUT") {
+    if (!(await staffMayTouchClient(clientMatch[1]))) return forbid();
     const b = await request.json();
     await db
       .prepare(
@@ -636,12 +779,14 @@ export async function handleApiRequest(request, env, path) {
     return j({ ok: true });
   }
   if (clientMatch && method === "DELETE") {
+    if (!owner) return forbid(); // удалять клиентов может только владелица
     await db.prepare("DELETE FROM clients WHERE id=?").bind(clientMatch[1]).run();
     return j({ ok: true });
   }
 
   const clientBookingsMatch = path.match(/^\/api\/clients\/(\d+)\/bookings$/);
   if (clientBookingsMatch && method === "GET") {
+    if (!(await staffMayTouchClient(clientBookingsMatch[1]))) return forbid();
     const { results } = await db
       .prepare(
         `SELECT b.*, s.name as service_name, e.name as employee_name
@@ -671,9 +816,15 @@ export async function handleApiRequest(request, env, path) {
     return j(results);
   }
 
-  // --- Записи (визиты) — ручное управление владельцем ---
+  // --- Записи (визиты) — ручное управление ---
   if (path === "/api/bookings" && method === "POST") {
     const b = await request.json();
+    // Сотрудница может создавать записи, только если ей это разрешено, и только на себя
+    if (!owner) {
+      if (!perms.edit) return forbid();
+      if (b.employee_id && b.employee_id !== myEmp) return forbid();
+      b.employee_id = myEmp;
+    }
     let clientId = b.client_id || null;
     if (!clientId && b.client_name) {
       const result = await db
@@ -706,7 +857,9 @@ export async function handleApiRequest(request, env, path) {
   }
   const bookingMatch = path.match(/^\/api\/bookings\/(\d+)$/);
   if (bookingMatch && method === "PUT") {
+    if (!(await staffMayEditBooking(bookingMatch[1]))) return forbid();
     const b = await request.json();
+    if (!owner) b.employee_id = myEmp; // не даём перекинуть запись на другого мастера
     await db
       .prepare(
         `UPDATE bookings SET service_id=?, employee_id=?, requested_datetime=?, end_datetime=?, custom_service_label=?, charged_amount=?, comment=?, formula=?, status=? WHERE id=?`
@@ -727,6 +880,7 @@ export async function handleApiRequest(request, env, path) {
     return j({ ok: true });
   }
   if (bookingMatch && method === "DELETE") {
+    if (!(await staffMayEditBooking(bookingMatch[1]))) return forbid();
     await db.prepare("DELETE FROM visit_photos WHERE booking_id=?").bind(bookingMatch[1]).run();
     await db.prepare("DELETE FROM bookings WHERE id=?").bind(bookingMatch[1]).run();
     return j({ ok: true });
@@ -743,6 +897,8 @@ export async function handleApiRequest(request, env, path) {
   }
   if (visitPhotosMatch && method === "POST") {
     const bookingId = visitPhotosMatch[1];
+    // Фото визита добавляет владелица или сотрудница с правом на «формулу/фото»
+    if (!owner && (!perms.visit || !(await staffMayEditBooking(bookingId)))) return forbid();
     const contentType = request.headers.get("content-type") || "";
 
     // Файл с телефона или компьютера кладём в R2, в базе храним только ссылку

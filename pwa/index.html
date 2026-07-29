@@ -823,8 +823,82 @@ async function openEmployeeForm(employee = {}) {
         : `<p style="font-size:12px;color:var(--muted)">Сначала добавь услуги на вкладке "Услуги".</p>`}
     </div>
     <button class="btn-primary" onclick="saveEmployee(${employee.id || "null"})">Сохранить</button>
+    ${isEdit ? `<div id="e_account_box"></div>` : `<p class="hint">Сначала сохрани мастера — потом здесь появится настройка доступа в панель.</p>`}
     ${isEdit ? `<button class="btn-secondary" onclick="deleteEmployee(${employee.id})">Удалить мастера</button>` : ""}
   `);
+  if (isEdit) renderAccountBox(employee.id);
+}
+
+// Блок «Доступ в панель»: логин, пароль и права сотрудницы
+async function renderAccountBox(employeeId) {
+  const acc = await api(`/employees/${employeeId}/account`);
+  const p = acc.permissions || {};
+  const box = document.getElementById("e_account_box");
+  if (!box) return;
+  const toggle = (key, title, sub) => `
+    <label class="check">
+      <input type="checkbox" id="acc_${key}" ${p[key] ? "checked" : ""}>
+      <span class="t">${title}${sub ? `<small>${sub}</small>` : ""}</span>
+    </label>`;
+  box.innerHTML = `
+    <h3 class="sum-title" style="margin-top:20px">Доступ в панель ${acc.has_account ? `<span style="font-size:11px;color:var(--muted)">(аккаунт есть${acc.active ? "" : ", отключён"})</span>` : ""}</h3>
+    <label>Логин</label>
+    <input id="acc_username" value="${acc.username || ""}" placeholder="например ${'wika'}" autocomplete="off">
+    <label>${acc.has_account ? "Новый пароль (оставь пустым — не менять)" : "Пароль"}</label>
+    <input id="acc_password" type="text" placeholder="${acc.has_account ? "не меняется" : "минимум 4 символа"}" autocomplete="off">
+
+    <h3 class="sum-title" style="margin-top:16px;font-size:14px">Что ей видно</h3>
+    <label>Какие записи</label>
+    <div class="seg" id="acc_scope">
+      <button type="button" class="${p.scope === "all" ? "" : "active"}" onclick="setAccScope('own', this)">Только свои</button>
+      <button type="button" class="${p.scope === "all" ? "active" : ""}" onclick="setAccScope('all', this)">Всех мастеров</button>
+    </div>
+    ${toggle("edit", "Может записывать и менять", "Без галочки — только смотрит расписание")}
+    ${toggle("phone", "Видит телефон клиента")}
+    ${toggle("prices", "Видит суммы в записях")}
+    ${toggle("revenue", "Видит свою выручку")}
+    ${toggle("schedule", "Может менять свой график")}
+    ${toggle("visit", "Заполняет формулу, фото, материалы")}
+    <p class="hint">Отчёты и общая выручка салона сотрудницам недоступны всегда.</p>
+
+    <button class="btn-primary" onclick="saveAccount(${employeeId})">${acc.has_account ? "Сохранить доступ" : "Создать аккаунт"}</button>
+    ${acc.has_account ? `<button class="btn-secondary" onclick="deleteAccount(${employeeId})">Удалить аккаунт</button>` : ""}
+  `;
+  box.dataset.scope = p.scope || "own";
+}
+
+function setAccScope(v, el) {
+  const box = document.getElementById("e_account_box");
+  box.dataset.scope = v;
+  el.parentElement.querySelectorAll("button").forEach(b => b.classList.remove("active"));
+  el.classList.add("active");
+}
+
+async function saveAccount(employeeId) {
+  const username = document.getElementById("acc_username").value.trim();
+  const password = document.getElementById("acc_password").value;
+  if (!username) { alert("Укажи логин"); return; }
+  const box = document.getElementById("e_account_box");
+  const permissions = {
+    scope: box.dataset.scope || "own",
+    edit: document.getElementById("acc_edit").checked,
+    phone: document.getElementById("acc_phone").checked,
+    prices: document.getElementById("acc_prices").checked,
+    revenue: document.getElementById("acc_revenue").checked,
+    schedule: document.getElementById("acc_schedule").checked,
+    visit: document.getElementById("acc_visit").checked,
+  };
+  const payload = { username, permissions };
+  if (password) payload.password = password;
+  const res = await api(`/employees/${employeeId}/account`, { method: "PUT", body: JSON.stringify(payload) });
+  if (res.ok) { alert("Доступ сохранён"); renderAccountBox(employeeId); }
+  else alert(res.error || "Не удалось сохранить");
+}
+
+async function deleteAccount(employeeId) {
+  if (!confirm("Удалить аккаунт этой сотрудницы? Она больше не сможет войти.")) return;
+  await api(`/employees/${employeeId}/account`, { method: "DELETE" });
+  renderAccountBox(employeeId);
 }
 
 function pickEmployeeColor(c) {
@@ -1002,7 +1076,7 @@ function calViewToggle() {
 async function renderCalendar() {
   if (calView === "week") return renderCalendarWeek();
 
-  document.getElementById("fab").style.display = "block";
+  document.getElementById("fab").style.display = can("edit") ? "block" : "none";
   document.getElementById("fab").onclick = () => openVisitForm({ requested_datetime: `${calDate}T10:00` });
 
   const data = await api(`/calendar?date=${calDate}`);
@@ -1069,8 +1143,8 @@ async function renderCalendar() {
 
     <div class="cal-stats">
       <div class="cal-stat"><b>${stats.всего}</b><span>записей</span></div>
-      <div class="cal-stat"><b>${stats.выручка ? Math.round(stats.выручка) : "—"}</b><span>PLN за день</span></div>
-      <div class="cal-stat"><b>${staff.filter(e => e.start_minutes != null).length}</b><span>мастеров в смене</span></div>
+      ${can("prices") ? `<div class="cal-stat"><b>${stats.выручка ? Math.round(stats.выручка) : "—"}</b><span>PLN за день</span></div>` : ""}
+      ${isOwner() ? `<div class="cal-stat"><b>${staff.filter(e => e.start_minutes != null).length}</b><span>мастеров в смене</span></div>` : ""}
       ${stats.отменено ? `<div class="cal-stat"><b>${stats.отменено}</b><span>отменено</span></div>` : ""}
     </div>
 
@@ -1164,7 +1238,7 @@ function renderCalColumn(emp, data, { from, to, gridH, posOf, isToday, color }) 
 
 // ---------- НЕДЕЛЬНЫЙ ВИД: колонки — дни, цвет блока — мастер ----------
 async function renderCalendarWeek() {
-  document.getElementById("fab").style.display = "block";
+  document.getElementById("fab").style.display = can("edit") ? "block" : "none";
   const start = weekStart(calDate);
   document.getElementById("fab").onclick = () => openVisitForm({ requested_datetime: `${start}T10:00` });
 
@@ -1219,12 +1293,12 @@ async function renderCalendarWeek() {
 
     <div class="cal-stats">
       <div class="cal-stat"><b>${live.length}</b><span>записей за неделю</span></div>
-      <div class="cal-stat"><b>${revenue ? Math.round(revenue).toLocaleString("ru-RU") : "—"}</b><span>PLN</span></div>
+      ${can("prices") ? `<div class="cal-stat"><b>${revenue ? Math.round(revenue).toLocaleString("ru-RU") : "—"}</b><span>PLN</span></div>` : ""}
       <div class="cal-stat"><b>${new Set(live.map(b => b.client_id).filter(Boolean)).size}</b><span>клиентов</span></div>
     </div>
 
-    <div class="cal-picker">
-      <button class="${!calFilterEmployee ? "active" : ""}" onclick="calPickEmployee(null)">Все</button>
+    ${scopeAll() ? `<div class="cal-picker">
+      <button class="${!calFilterEmployee ? "active" : ""}" onclick="calPickEmployee(null)">Все</button>` : `<div class="cal-picker" style="display:none">`}
       ${data.employees.map((e, i) => `
         <button class="${e.id === calFilterEmployee ? "active" : ""}" onclick="calPickEmployee(${e.id})">
           <span class="dot" style="background:${empColor(e, i)}"></span>${e.name}
@@ -2344,6 +2418,22 @@ async function resumeAgent(convId) {
 // ---------- ПРОФИЛЬ / ТОН ОБЩЕНИЯ ----------
 async function renderProfile() {
   document.getElementById("fab").style.display = "none";
+
+  // У сотрудницы «Профиль» — это её аккаунт: имя, смена пароля, выход
+  if (!isOwner()) {
+    document.getElementById("content").innerHTML = `
+      <div class="card">
+        <h3>${CURRENT_USER?.name || "Мой аккаунт"}</h3>
+        <p class="hint">Вы вошли как сотрудница. Что вам доступно, настраивает владелица салона.</p>
+        <label>Сменить пароль</label>
+        <input id="pw_old" type="password" placeholder="Текущий пароль">
+        <input id="pw_new" type="password" placeholder="Новый пароль" style="margin-top:8px">
+        <button class="btn-primary" onclick="changeMyPassword()">Обновить пароль</button>
+        <button class="btn-secondary" onclick="logout()">Выйти</button>
+      </div>`;
+    return;
+  }
+
   const salon = await api("/salon");
   document.getElementById("content").innerHTML = `
     <div class="card">
@@ -2405,54 +2495,129 @@ function render() {
   renderers[currentTab]();
 }
 
-// ---------- ВХОД (защита панели токеном) ----------
+// ---------- ВХОД И РОЛИ ----------
+let CURRENT_USER = null; // { role, permissions, employee_id, name }
+
+function isOwner() { return CURRENT_USER && CURRENT_USER.role === "owner"; }
+function can(perm) {
+  if (isOwner()) return true;
+  return !!(CURRENT_USER && CURRENT_USER.permissions && CURRENT_USER.permissions[perm]);
+}
+function scopeAll() { return isOwner() || (CURRENT_USER && CURRENT_USER.permissions && CURRENT_USER.permissions.scope === "all"); }
+
 function showLogin(errorMsg) {
   document.querySelector("nav").style.display = "none";
   document.getElementById("fab").style.display = "none";
   document.getElementById("content").innerHTML = `
     <div class="card" style="max-width:360px;margin:40px auto;">
       <h3 style="text-align:center">Вход в панель</h3>
-      <p style="text-align:center">Введите токен доступа владельца.</p>
       ${errorMsg ? `<p style="color:var(--terracotta);text-align:center">${errorMsg}</p>` : ""}
-      <label>Токен доступа</label>
-      <input id="login_token" type="password" placeholder="Токен">
-      <button class="btn-primary" onclick="doLogin()">Войти</button>
+      <label>Логин</label>
+      <input id="login_user" autocomplete="username" placeholder="Логин">
+      <label>Пароль</label>
+      <input id="login_pass" type="password" autocomplete="current-password" placeholder="Пароль">
+      <button class="btn-primary" onclick="doLoginStaff()">Войти</button>
+      <button class="link-btn" style="display:block;margin:12px auto 0" onclick="showOwnerKey()">Я владелица — войти по ключу</button>
+      <div id="owner_key_box" style="display:none;margin-top:8px">
+        <label>Ключ владельца</label>
+        <input id="login_token" type="password" placeholder="Мастер-ключ">
+        <button class="btn-secondary" onclick="doLoginOwner()">Войти как владелица</button>
+      </div>
     </div>`;
-  const inp = document.getElementById("login_token");
-  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
-  inp.focus();
+  const u = document.getElementById("login_user");
+  const p = document.getElementById("login_pass");
+  p.addEventListener("keydown", (e) => { if (e.key === "Enter") doLoginStaff(); });
+  u.focus();
 }
 
-async function doLogin() {
+function showOwnerKey() {
+  document.getElementById("owner_key_box").style.display = "block";
+  document.getElementById("login_token").focus();
+}
+
+async function doLoginStaff() {
+  const username = document.getElementById("login_user").value.trim();
+  const password = document.getElementById("login_pass").value;
+  if (!username || !password) return;
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.ok && data.token) {
+    ADMIN_TOKEN = data.token;
+    localStorage.setItem("hc_admin_token", data.token);
+    localStorage.setItem("hc_user", JSON.stringify(data));
+    CURRENT_USER = { role: data.role, permissions: data.permissions, employee_id: data.employee_id, name: data.name };
+    startApp();
+  } else {
+    showLogin(data.error || "Неверный логин или пароль");
+  }
+}
+
+async function doLoginOwner() {
   const token = document.getElementById("login_token").value.trim();
   if (!token) return;
   ADMIN_TOKEN = token;
-  const res = await fetch(`${API_BASE}/salon`, { headers: { "X-Admin-Token": token } });
+  const res = await fetch(`${API_BASE}/auth/me`, { headers: { "X-Admin-Token": token } });
   if (res.ok) {
+    const me = await res.json();
+    if (me.role !== "owner") { ADMIN_TOKEN = ""; showLogin("Это не ключ владельца."); return; }
     localStorage.setItem("hc_admin_token", token);
+    localStorage.setItem("hc_user", JSON.stringify({ role: "owner" }));
+    CURRENT_USER = { role: "owner" };
     startApp();
   } else {
     ADMIN_TOKEN = "";
-    showLogin("Неверный токен. Попробуйте ещё раз.");
+    showLogin("Неверный ключ. Попробуйте ещё раз.");
   }
+}
+
+async function changeMyPassword() {
+  const oldp = document.getElementById("pw_old").value;
+  const newp = document.getElementById("pw_new").value;
+  if (!oldp || !newp) { alert("Заполните оба поля"); return; }
+  const res = await api("/auth/password", { method: "POST", body: JSON.stringify({ old: oldp, new: newp }) });
+  alert(res.ok ? "Пароль обновлён" : (res.error || "Не удалось сменить пароль"));
+  if (res.ok) { document.getElementById("pw_old").value = ""; document.getElementById("pw_new").value = ""; }
 }
 
 function logout() {
   localStorage.removeItem("hc_admin_token");
+  localStorage.removeItem("hc_user");
   ADMIN_TOKEN = "";
+  CURRENT_USER = null;
   location.reload();
+}
+
+// Показываем вкладки под роль: сотрудница видит только записи, своих клиентов и свой профиль
+function applyAccess() {
+  const staffTabs = ["calendar", "clients", "profile"];
+  document.querySelectorAll("nav button").forEach((b) => {
+    const tab = b.dataset.tab;
+    b.style.display = isOwner() || staffTabs.includes(tab) ? "" : "none";
+  });
+  const clientsBtn = document.querySelector('nav button[data-tab="clients"]');
+  if (clientsBtn) clientsBtn.textContent = isOwner() ? "Клиенты" : "Мои клиенты";
+  if (!isOwner() && !staffTabs.includes(currentTab)) currentTab = "calendar";
 }
 
 function startApp() {
   document.querySelector("nav").style.display = "flex";
+  applyAccess();
+  document.querySelector(`nav button[data-tab="${currentTab}"]`)?.classList.add("active");
   render();
 }
 
 async function boot() {
   if (!ADMIN_TOKEN) { showLogin(); return; }
-  const res = await fetch(`${API_BASE}/salon`, { headers: { "X-Admin-Token": ADMIN_TOKEN } });
-  if (res.ok) startApp();
-  else showLogin("Сессия истекла. Войдите снова.");
+  const res = await fetch(`${API_BASE}/auth/me`, { headers: { "X-Admin-Token": ADMIN_TOKEN } });
+  if (res.ok) {
+    CURRENT_USER = await res.json();
+    startApp();
+  } else {
+    showLogin("Сессия истекла. Войдите снова.");
+  }
 }
 
 // Если панель почему-то не поднялась (застрявший кэш, оборванная загрузка),

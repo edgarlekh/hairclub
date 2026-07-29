@@ -9,6 +9,7 @@
  */
 import { getAgentResponse } from "./agent.js";
 import { handleApiRequest } from "./api-routes.js";
+import { resolveAuth, verifyPassword, randomToken, parsePerms } from "./auth.js";
 import { handlePublicRequest } from "./public-routes.js";
 import { isSignatureValid } from "./photo-links.js";
 
@@ -67,13 +68,16 @@ export default {
       return new Response(object.body, { headers });
     }
 
-    // Роуты для PWA-панели владельца — защищены токеном доступа
+    // Вход сотрудницы по логину и паролю — без токена (токен ей ещё не выдан)
+    if (url.pathname === "/api/auth/login" && request.method === "POST") {
+      return handleLogin(request, env);
+    }
+
+    // Роуты для панели — владелица по мастер-ключу, сотрудница по токену сессии
     if (url.pathname.startsWith("/api/")) {
-      const providedToken = request.headers.get("X-Admin-Token");
-      if (!env.ADMIN_TOKEN || providedToken !== env.ADMIN_TOKEN) {
-        return json({ error: "Unauthorized" }, 401);
-      }
-      return handleApiRequest(request, env, url.pathname);
+      const auth = await resolveAuth(request, env);
+      if (!auth) return json({ error: "Unauthorized" }, 401);
+      return handleApiRequest(request, env, url.pathname, auth);
     }
 
     if (request.method !== "POST") {
@@ -118,6 +122,39 @@ export default {
     }
   },
 };
+
+async function handleLogin(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  const username = String(body.username || "").trim();
+  const password = String(body.password || "");
+  if (!username || !password) return json({ error: "Введите логин и пароль" }, 400);
+
+  const acc = await env.DB
+    .prepare("SELECT * FROM staff_accounts WHERE lower(username) = lower(?)")
+    .bind(username)
+    .first();
+  // Одинаковый ответ на неверный логин и пароль — не подсказываем, что существует
+  if (!acc || !acc.active) return json({ error: "Неверный логин или пароль" }, 401);
+
+  const ok = await verifyPassword(password, acc.password_salt, acc.password_hash);
+  if (!ok) return json({ error: "Неверный логин или пароль" }, 401);
+
+  const token = randomToken();
+  await env.DB.prepare("UPDATE staff_accounts SET token = ? WHERE id = ?").bind(token, acc.id).run();
+
+  const employee = acc.employee_id
+    ? await env.DB.prepare("SELECT name FROM employees WHERE id = ?").bind(acc.employee_id).first()
+    : null;
+
+  return json({
+    token,
+    role: acc.role || "staff",
+    name: employee ? employee.name : acc.username,
+    employee_id: acc.employee_id,
+    permissions: parsePerms(acc.permissions),
+  });
+}
 
 function corsHeaders() {
   return {
