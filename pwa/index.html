@@ -130,6 +130,8 @@
                 overflow-y: auto; background: var(--bg-soft); border: 1px solid var(--border);
                 border-radius: 10px; padding: 10px; margin: 6px 0 10px; }
   .agent-chat .msg { white-space: pre-wrap; }
+  .agent-chat .msg.sys { background: #fbeee0; color: var(--gold-mid); align-self: stretch; max-width: 100%;
+                         font-size: 12px; border: 1px dashed var(--gold-2); }
   .agent-input { display: flex; gap: 8px; }
   .agent-input input { margin: 0; }
   .fix-btn { display: block; margin-top: 5px; background: none; border: none; padding: 0; width: auto;
@@ -2478,6 +2480,7 @@ async function renderConversations() {
   const content = document.getElementById("content");
 
   const testBox = `
+    <div id="pending_box"></div>
     <div class="card" style="margin-bottom:16px">
       <h3>Проверить агента</h3>
       <p class="hint">Напишите боту как клиент — он ответит на реальных данных салона (услуги, мастера, свободные окна). Это тест, настоящие записи создаются только если довести диалог до конца.</p>
@@ -2516,7 +2519,47 @@ async function renderConversations() {
     : `<p class="empty" style="margin-top:8px">Диалогов с клиентами пока нет.</p>`);
 
   loadAgentHistory();
+  renderPending();
   renderLessons();
+}
+
+// Раздел «Бот спрашивает»: вопросы, на которые бот не знал ответ
+async function renderPending() {
+  const box = document.getElementById("pending_box");
+  if (!box) return;
+  const items = await api("/pending");
+  if (!items.length) { box.innerHTML = ""; return; }
+  box.innerHTML = `
+    <div class="card" style="margin-bottom:16px;border:2px solid var(--gold-2)">
+      <h3>🙋 Бот спрашивает вас (${items.length})</h3>
+      <p class="hint">Бот не знал ответ и ждёт вас. Напишите правильный ответ — он уйдёт клиенту и запомнится, дальше бот ответит сам.</p>
+      ${items.map(p => `
+        <div class="lesson fix" style="margin-top:8px">
+          ${p.client_question ? `<div class="l-row"><b>Клиент спросил:</b> ${p.client_question}</div>` : ""}
+          <div class="l-row"><b>Бот не знает:</b> ${p.bot_question || "—"}</div>
+          <textarea id="pa_${p.id}" rows="2" placeholder="Ваш ответ клиенту" style="margin-top:8px"></textarea>
+          <div class="form-actions" style="margin-top:6px">
+            <button class="btn-secondary" style="flex:0 0 34%" onclick="dismissPending(${p.id})">Пропустить</button>
+            <button class="btn-primary" onclick="answerPending(${p.id})">Ответить и научить</button>
+          </div>
+        </div>
+      `).join("")}
+    </div>`;
+}
+
+async function answerPending(id) {
+  const answer = document.getElementById(`pa_${id}`).value.trim();
+  if (!answer) { alert("Напишите ответ"); return; }
+  const res = await api(`/pending/${id}/answer`, { method: "POST", body: JSON.stringify({ answer }) });
+  if (res.error) { alert(res.error); return; }
+  renderPending();
+  loadAgentHistory(); // ответ уже ушёл клиенту — подтянем в чат
+  renderLessons();
+}
+
+async function dismissPending(id) {
+  await api(`/pending/${id}`, { method: "DELETE" });
+  renderPending();
 }
 
 // Подтягиваем реальную историю тест-диалога с сервера — чтобы на экране было то же,
@@ -2533,6 +2576,7 @@ function drawAgentChat() {
   box.innerHTML = agentChat.length
     ? agentChat.map((m, i) => {
         if (m.role === "you") return `<div class="msg client">${m.text}</div>`;
+        if (m.role === "sys") return `<div class="msg sys">${m.text}</div>`;
         const real = m.text !== "…" && !m.text.startsWith("⚠");
         return `<div class="msg agent">${m.text}${real ? `<button class="fix-btn" onclick="correctBotReply(${i})">✎ поправить</button>` : ""}</div>`;
       }).join("")
@@ -2584,7 +2628,13 @@ async function sendAgentTest() {
   drawAgentChat();
   const res = await api("/agent/test", { method: "POST", body: JSON.stringify({ message: text }) });
   agentChat.pop(); // убираем «…»
-  agentChat.push({ role: "bot", text: res.error ? "⚠ " + res.error : (res.reply || "(пустой ответ)") });
+  if (res.pending) {
+    agentChat.push({ role: "sys", text: "🙋 Бот не знает ответ и спросил вас. Ответьте ниже в разделе «Бот спрашивает» — ответ уйдёт клиенту и запомнится." });
+    renderLessons();
+    renderPending();
+  } else {
+    agentChat.push({ role: "bot", text: res.error ? "⚠ " + res.error : (res.reply || "(пустой ответ)") });
+  }
   drawAgentChat();
 }
 

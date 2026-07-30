@@ -54,11 +54,21 @@ const TOOLS = [
   {
     name: "escalate_to_owner",
     description:
-      "Передать диалог владельцу/администратору, если ситуация конфликтная, нестандартная или агент не уверен",
+      "Передать диалог владельцу/администратору, если ситуация конфликтная или нестандартная (жалоба, спор, особый случай)",
     input_schema: {
       type: "object",
       properties: { reason: { type: "string" } },
       required: ["reason"],
+    },
+  },
+  {
+    name: "ask_owner",
+    description:
+      "ОБЯЗАТЕЛЬНО вызывай, если не знаешь точный ответ на вопрос клиента и его нет в данных салона (услуги, анкета, уроки, скриншоты). Не выдумывай и не пиши клиенту «уточню у мастера» — просто задай вопрос владелице через этот инструмент. Клиенту в этот момент по сути не отвечай, ответ придёт от владелицы.",
+    input_schema: {
+      type: "object",
+      properties: { question: { type: "string", description: "Что именно нужно узнать у владелицы, чтобы ответить клиенту" } },
+      required: ["question"],
     },
   },
 ];
@@ -254,12 +264,14 @@ ${formatScreenshots(context.screenshots)}
 - Про длительность говори как ориентир ("сориентирую по времени: обычно занимает 3–5 часов"), а не как жёсткое обязательство.
 - Пиши короче. Не превращай ответ в лекцию — 1–3 коротких предложения обычно достаточно.
 
+ГЛАВНОЕ ПРАВИЛО ТОЧНОСТИ (важнее всего): никогда не выдумывай факты, цены, детали, которых нет в данных выше (услуги, анкета, уроки, скриншоты). Если ты чего-то НЕ знаешь точно — НЕ придумывай и НЕ пиши клиенту «уточню у мастера» / «я уточню и напишу». Вместо этого вызови ask_owner и задай вопрос владелице. Клиенту в этот момент по сути не отвечай — просто вызови инструмент. Владелица ответит, её ответ уйдёт клиенту, и ты запомнишь его на будущее. Лучше спросить, чем ошибиться.
+
 Правила поведения:
 1. Если клиент спрашивает "как будет выглядеть" — используй attach_photo с подходящим id.
 2. Если клиент готов записаться — сначала уточни услугу, желаемую дату и мастера, вызови get_available_slots и предложи клиенту реально свободное время. Только после того как клиент выбрал конкретный слот и назвал имя+телефон — вызывай create_booking.
-3. Если клиент недоволен, ситуация конфликтная, или ты не уверен — вызови escalate_to_owner и мягко сообщи клиенту, что уточнишь и вернёшься.
+3. Если ситуация конфликтная (жалоба, спор, недовольство) — вызови escalate_to_owner.
 4. Никогда не выдумывай цены и услуги, которых нет в списке выше.
-5. Если по запросу ничего не найдено — честно скажи, что уточнишь, и вызови escalate_to_owner.`;
+5. Если не знаешь ответа на вопрос клиента — вызови ask_owner (не выдумывай и не пиши «уточню»).`;
 }
 
 async function getConversationHistory(db, conversationId, limit = 20) {
@@ -282,7 +294,16 @@ async function saveMessage(db, conversationId, sender, content) {
     .run();
 }
 
-async function handleToolCall(db, toolName, toolInput, conversationId, bookingSource = "agent") {
+async function handleToolCall(db, toolName, toolInput, conversationId, bookingSource = "agent", clientMessage = "") {
+  if (toolName === "ask_owner") {
+    // Не знает ответ — кладём вопрос владелице; клиенту сейчас не отвечаем
+    const conv = await db.prepare("SELECT client_channel_id FROM conversations WHERE id=?").bind(conversationId).first();
+    await db
+      .prepare("INSERT INTO pending_questions (salon_id, conversation_id, client_channel_id, client_question, bot_question) VALUES (1, ?, ?, ?, ?)")
+      .bind(conversationId, conv?.client_channel_id || null, clientMessage || null, toolInput.question || null)
+      .run();
+    return "__ASK_OWNER__";
+  }
   if (toolName === "get_available_slots") {
     const result = await getAvailableSlots(
       db,
@@ -392,6 +413,7 @@ export async function getAgentResponse(env, salonId, conversationId, clientMessa
 
   const attachedPhotos = [];
   let finalText = "";
+  let waitingForOwner = false;
 
   // Агентский цикл: пока модель просит инструмент — выполняем и отдаём результат обратно.
   for (let step = 0; step < 5; step++) {
@@ -411,13 +433,20 @@ export async function getAgentResponse(env, salonId, conversationId, clientMessa
     const toolResults = [];
     for (const tu of toolUses) {
       if (tu.name === "attach_photo") attachedPhotos.push(tu.input.photo_id);
-      const result = await handleToolCall(db, tu.name, tu.input, conversationId, bookingSource);
+      const result = await handleToolCall(db, tu.name, tu.input, conversationId, bookingSource, clientMessage);
+      if (result === "__ASK_OWNER__") waitingForOwner = true;
       toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: result });
     }
     messages.push({ role: "user", content: toolResults });
   }
 
-  if (!finalText) finalText = "Секунду, уточню и вернусь к вам.";
+  // Бот не знает — спросил владелицу. Клиенту сейчас ничего не отправляем,
+  // ответ придёт, когда владелица напишет его в разделе «Бот спрашивает».
+  if (waitingForOwner) {
+    return { reply: null, pending: true, photos: attachedPhotos };
+  }
+
+  if (!finalText) finalText = "Секунду, я на связи.";
   await saveMessage(db, conversationId, "agent", finalText);
   return { reply: finalText, photos: attachedPhotos };
 }

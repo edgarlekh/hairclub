@@ -1188,6 +1188,44 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
     return j({ ok: true });
   }
 
+  // --- Вопросы, на которые бот не знает ответ (режим «спроси у владельца») ---
+  if (path === "/api/pending" && method === "GET") {
+    if (!owner) return forbid();
+    const { results } = await db
+      .prepare("SELECT * FROM pending_questions WHERE salon_id = ? AND status = 'pending' ORDER BY created_at ASC")
+      .bind(SALON_ID).all();
+    return j(results);
+  }
+  const pendingAnswerMatch = path.match(/^\/api\/pending\/(\d+)\/answer$/);
+  if (pendingAnswerMatch && method === "POST") {
+    if (!owner) return forbid();
+    const b = await request.json();
+    const answer = String(b.answer || "").trim();
+    if (!answer) return j({ error: "Напишите ответ" }, 400);
+
+    const pq = await db.prepare("SELECT * FROM pending_questions WHERE id=? AND salon_id=?").bind(pendingAnswerMatch[1], SALON_ID).first();
+    if (!pq) return j({ error: "Вопрос не найден" }, 404);
+
+    // 1. Ответ уходит клиенту — как сообщение агента в диалоге
+    if (pq.conversation_id) {
+      await db.prepare("INSERT INTO messages (conversation_id, sender, content) VALUES (?, 'agent', ?)").bind(pq.conversation_id, answer).run();
+    }
+    // 2. Сохраняем как урок — в следующий раз бот ответит сам
+    await db
+      .prepare("INSERT INTO agent_training (salon_id, kind, situation, right_way, source) VALUES (?, 'good', ?, ?, 'pending')")
+      .bind(SALON_ID, pq.client_question || pq.bot_question || "", answer)
+      .run();
+    // 3. Закрываем вопрос
+    await db.prepare("UPDATE pending_questions SET status='answered', answer=?, answered_at=CURRENT_TIMESTAMP WHERE id=?").bind(answer, pendingAnswerMatch[1]).run();
+    return j({ ok: true });
+  }
+  const pendingDelMatch = path.match(/^\/api\/pending\/(\d+)$/);
+  if (pendingDelMatch && method === "DELETE") {
+    if (!owner) return forbid();
+    await db.prepare("UPDATE pending_questions SET status='answered' WHERE id=? AND salon_id=?").bind(pendingDelMatch[1], SALON_ID).run();
+    return j({ ok: true });
+  }
+
   // --- Диалоги (просмотр + вмешательство владельца) ---
   if (path === "/api/conversations" && method === "GET") {
     const { results } = await db
