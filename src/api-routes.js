@@ -45,6 +45,19 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
 
   // --- Тест-чат агента (только владелица): поговорить с ботом на реальных данных ---
   const TEST_CHANNEL = "panel-test";
+  // История текущего тестового диалога — чтобы чат на экране совпадал с тем,
+  // что реально видит бот (иначе кажется, что он «не здоровается»).
+  if (path === "/api/agent/test/history" && method === "GET") {
+    if (!owner) return forbid();
+    const conv = await db
+      .prepare("SELECT id FROM conversations WHERE salon_id=? AND client_channel_id=? AND status='active'")
+      .bind(SALON_ID, TEST_CHANNEL).first();
+    if (!conv) return j([]);
+    const { results } = await db
+      .prepare("SELECT sender, content FROM messages WHERE conversation_id=? ORDER BY id ASC")
+      .bind(conv.id).all();
+    return j(results);
+  }
   if (path === "/api/agent/test" && method === "POST") {
     if (!owner) return forbid();
     const b = await request.json();

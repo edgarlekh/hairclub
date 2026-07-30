@@ -2515,8 +2515,16 @@ async function renderConversations() {
   `).join("")
     : `<p class="empty" style="margin-top:8px">Диалогов с клиентами пока нет.</p>`);
 
-  drawAgentChat();
+  loadAgentHistory();
   renderLessons();
+}
+
+// Подтягиваем реальную историю тест-диалога с сервера — чтобы на экране было то же,
+// что видит бот (иначе после перезагрузки чат пустой, а бот «помнит» и не здоровается).
+async function loadAgentHistory() {
+  const history = await api("/agent/test/history");
+  agentChat = (history || []).map(m => ({ role: m.sender === "agent" ? "bot" : "you", text: m.content }));
+  drawAgentChat();
 }
 
 function drawAgentChat() {
