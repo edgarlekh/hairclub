@@ -45,7 +45,7 @@ function normFact(s) {
 }
 
 // Обработать партию сырых фрагментов: очистить через Claude и записать факты.
-export async function distillBatch(env, offset = 0, limit = 40) {
+export async function distillBatch(env, offset = 0, limit = 40, debug = false) {
   const { results: raw } = await env.DB
     .prepare("SELECT content FROM kb_raw WHERE salon_id = 1 ORDER BY id LIMIT ? OFFSET ?")
     .bind(limit, offset)
@@ -56,6 +56,7 @@ export async function distillBatch(env, offset = 0, limit = 40) {
   const out = await callClaude(env, DISTILL_SYSTEM, "Реплики администратора:\n\n" + chunk);
 
   const facts = out.split("\n").map((l) => l.replace(/^[-•*\d.\s]+/, "").trim()).filter((l) => l.length > 12);
+  if (debug) return { debug: true, rawLen: out.length, sample: out.slice(0, 600), factsFound: facts.length };
 
   // Дедуп против уже сохранённых
   const { results: existing } = await env.DB.prepare("SELECT content FROM agent_knowledge WHERE salon_id = 1").all();

@@ -129,8 +129,9 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
     if (!owner) return forbid();
     const offset = Number(url.searchParams.get("offset") || 0);
     const limit = Number(url.searchParams.get("limit") || 40);
+    const debug = url.searchParams.get("debug") === "1";
     try {
-      const r = await distillBatch(env, offset, limit);
+      const r = await distillBatch(env, offset, limit, debug);
       return j(r);
     } catch (e) {
       return j({ error: String(e.message || e) }, 500);
