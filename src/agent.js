@@ -201,7 +201,11 @@ function formatEmojiInstruction(emojiUsage) {
 }
 
 function buildSystemPrompt(salon, context) {
-  return `Ты администратор салона красоты "${salon.name}" в Варшаве.
+  // Промпт разбит на две части ради prompt-caching: STABLE — большой неизменный
+  // блок (правила, анкета, уроки, база знаний), он кэшируется и повторный вход
+  // дешевеет ~в 10 раз; DYNAMIC — то, что меняется от сообщения к сообщению
+  // (сегодняшняя дата, услуги/фото/FAQ по запросу) — идёт ПОСЛЕ точки кэша.
+  const stable = `Ты администратор салона красоты "${salon.name}" в Варшаве.
 Тон общения: ${salon.tone_of_voice}.
 Общайся как живой человек, естественно, без канцелярита и не как бот. Пиши так, как писал бы уставший, но приветливый администратор в переписке — короткими сообщениями, без официоза.
 
@@ -230,19 +234,8 @@ ${formatEmojiInstruction(salon.emoji_usage)}
 ЗАПРЕЩЁННЫЕ СЛОВА И ФРАЗЫ (никогда не используй, даже если клиент сам их употребит):
 ${formatBannedWords(salon.banned_words)}
 
-${todayInfo()}
-
-РЕЛЕВАНТНЫЕ УСЛУГИ (используй только эти данные о ценах, не выдумывай):
-${formatServices(context.services)}
-
 МАСТЕРА (для записи бери employee_id отсюда; предлагай только мастера, который делает нужную услугу):
 ${formatEmployees(context.employees, context.services)}
-
-ПОДХОДЯЩИЕ ФОТО ПРИМЕРОВ РАБОТ:
-${formatPhotos(context.photos)}
-
-БАЗА ЗНАНИЙ (используй только если клиент явно спрашивает по теме):
-${formatFaq(context.faq)}
 
 АКТУАЛЬНЫЕ ОГРАНИЧЕНИЯ И ИНСТРУКЦИИ ВЛАДЕЛЬЦА (приоритет выше всего остального):
 ${formatRules(context.rules)}
@@ -283,6 +276,20 @@ ${formatKnowledge(context.knowledge)}
 3. Если ситуация конфликтная (жалоба, спор, недовольство) — вызови escalate_to_owner.
 4. Никогда не выдумывай цены и услуги, которых нет в списке выше.
 5. Если не знаешь ответа на вопрос клиента — вызови ask_owner (не выдумывай и не пиши «уточню»).`;
+
+  // Изменчивая часть — идёт ПОСЛЕ точки кэша, кэш из-за неё не сбрасывается.
+  const dynamic = `${todayInfo()}
+
+РЕЛЕВАНТНЫЕ УСЛУГИ (используй только эти данные о ценах, не выдумывай):
+${formatServices(context.services)}
+
+ПОДХОДЯЩИЕ ФОТО ПРИМЕРОВ РАБОТ:
+${formatPhotos(context.photos)}
+
+БАЗА ЗНАНИЙ ПО ЗАПРОСУ (используй только если клиент явно спрашивает по теме):
+${formatFaq(context.faq)}`;
+
+  return { stable, dynamic };
 }
 
 async function getConversationHistory(db, conversationId, limit = 20) {
@@ -388,6 +395,13 @@ export async function transcribeImage(env, bytes, mediaType) {
 }
 
 async function callAnthropic(env, systemPrompt, messages) {
+  // systemPrompt = { stable, dynamic }. Кэшируем большой неизменный блок:
+  // cache_control на нём — повторные запросы читают его из кэша (~0.1× цены),
+  // а изменчивый блок (дата/услуги/фото) идёт после и обрабатывается заново.
+  const system = [
+    { type: "text", text: systemPrompt.stable, cache_control: { type: "ephemeral" } },
+    { type: "text", text: systemPrompt.dynamic },
+  ];
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -398,7 +412,7 @@ async function callAnthropic(env, systemPrompt, messages) {
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 1000,
-      system: systemPrompt,
+      system,
       messages,
       tools: TOOLS,
     }),
