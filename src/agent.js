@@ -5,7 +5,10 @@
 import { retrieveContext, getSalon } from "./retrieval.js";
 import { getAvailableSlots, createBookingSafe } from "./booking-slots.js";
 
-const MODEL = "claude-sonnet-5";
+// Клиентский диалог — на флагманском Opus (максимум качества, «премиум-админ»).
+const MODEL = "claude-opus-5";
+// Чтение скриншотов — фоновая задача, разницы клиент не видит: держим на дешёвом Sonnet.
+const VISION_MODEL = "claude-sonnet-5";
 
 const TOOLS = [
   {
@@ -368,7 +371,7 @@ export async function transcribeImage(env, bytes, mediaType) {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({
-      model: MODEL,
+      model: VISION_MODEL,
       max_tokens: 900,
       messages: [{
         role: "user",
