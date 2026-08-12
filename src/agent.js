@@ -156,6 +156,11 @@ function formatScreenshots(shots) {
   return shots.map((t, i) => `— Скриншот ${i + 1}:\n${t}`).join("\n\n");
 }
 
+function formatKnowledge(items) {
+  if (!items || !items.length) return "(пока пусто)";
+  return items.map((t) => `• ${t}`).join("\n");
+}
+
 function formatLessons(lessons) {
   if (!lessons || !lessons.length) return "(пока нет)";
   return lessons
@@ -247,6 +252,9 @@ ${formatLessons(context.lessons)}
 
 ПРИМЕРЫ ПЕРЕПИСОК И ПРАЙСЫ СО СКРИНШОТОВ (владелица приложила реальные переписки/прайсы; учись у них — как она общается, какие цены, как ведёт к записи):
 ${formatScreenshots(context.screenshots)}
+
+БАЗА ЗНАНИЙ САЛОНА (проверенные общие факты, извлечённые из реальных переписок — опирайся на них как на правду; здесь намеренно нет цен, цену всегда уточняй у владелицы через ask_owner):
+${formatKnowledge(context.knowledge)}
 
 КАК ВЕСТИ ДИАЛОГ (очень важно, клиенты жалуются на навязчивость):
 - Реагируй на то, что человек реально написал, а не на то, что он «наверное хочет». Веди живой диалог, как администратор в переписке, а не выдавай справку.

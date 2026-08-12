@@ -7,6 +7,7 @@ import { DAY_NAMES } from "./booking-slots.js";
 import { presentPhotos, toStoredPhoto, isStoredPhoto, storedKey } from "./photo-links.js";
 import { hashPassword, verifyPassword, DEFAULT_PERMS, parsePerms } from "./auth.js";
 import { getAgentResponse, transcribeImage } from "./agent.js";
+import { distillBatch } from "./kb.js";
 
 function j(obj, status = 200) {
   return new Response(JSON.stringify(obj), {
@@ -121,6 +122,25 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
       }
     }
     return j({ ok: true, bookings: bookingIds.length, clients: clientsDeleted });
+  }
+
+  // Очистка базы знаний: партиями превращаем kb_raw в чистые факты agent_knowledge
+  if (path === "/api/kb/distill" && method === "POST") {
+    if (!owner) return forbid();
+    const offset = Number(url.searchParams.get("offset") || 0);
+    const limit = Number(url.searchParams.get("limit") || 40);
+    try {
+      const r = await distillBatch(env, offset, limit);
+      return j(r);
+    } catch (e) {
+      return j({ error: String(e.message || e) }, 500);
+    }
+  }
+  if (path === "/api/kb/status" && method === "GET") {
+    if (!owner) return forbid();
+    const raw = await db.prepare("SELECT COUNT(*) AS n FROM kb_raw WHERE salon_id=1").first().catch(() => ({ n: 0 }));
+    const facts = await db.prepare("SELECT COUNT(*) AS n FROM agent_knowledge WHERE salon_id=1 AND source='distilled'").first().catch(() => ({ n: 0 }));
+    return j({ raw: raw?.n || 0, facts: facts?.n || 0 });
   }
 
   // Кто вошёл — чтобы панель показала нужный набор вкладок

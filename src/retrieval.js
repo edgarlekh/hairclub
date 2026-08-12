@@ -11,6 +11,7 @@
  * (встроенная векторная база Cloudflare) без изменения интерфейса
  * функций ниже.
  */
+import { getAllKnowledge } from "./kb.js";
 
 function normalize(text) {
   return text
@@ -75,6 +76,7 @@ export async function retrieveFaq(db, salonId, query, topK = 2) {
     .all();
   return rankBySimilarity(query, results, (f) => `${f.topic} ${f.content}`, topK);
 }
+
 
 export async function getActiveRules(db, salonId) {
   const today = new Date().toISOString().slice(0, 10);
@@ -144,7 +146,7 @@ export async function retrieveEmployees(db, salonId) {
 }
 
 export async function retrieveContext(db, salonId, clientMessage) {
-  const [services, photos, faq, rules, employees, survey, lessons, screenshots] = await Promise.all([
+  const [services, photos, faq, rules, employees, survey, lessons, screenshots, knowledge] = await Promise.all([
     retrieveServices(db, salonId, clientMessage),
     retrievePhotos(db, salonId, clientMessage),
     retrieveFaq(db, salonId, clientMessage),
@@ -153,6 +155,7 @@ export async function retrieveContext(db, salonId, clientMessage) {
     getSurveyAnswers(db, salonId),
     getLessons(db, salonId),
     getScreenshotTranscripts(db, salonId),
+    getAllKnowledge(db, salonId),
   ]);
-  return { services, photos, faq, rules, employees, survey, lessons, screenshots };
+  return { services, photos, faq, rules, employees, survey, lessons, screenshots, knowledge };
 }

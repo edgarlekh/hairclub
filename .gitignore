@@ -11,3 +11,4 @@ backup*.sql
 migrations/003_import_clients.sql
 migrations/004_import_bumpix.sql
 migrations/006_import_services.sql
+migrations/021_kb_raw.sql
