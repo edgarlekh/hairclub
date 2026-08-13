@@ -143,6 +143,20 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
     const facts = await db.prepare("SELECT COUNT(*) AS n FROM agent_knowledge WHERE salon_id=1 AND source='distilled'").first().catch(() => ({ n: 0 }));
     return j({ raw: raw?.n || 0, facts: facts?.n || 0 });
   }
+  // Выгрузка чистых фактов базы знаний — для аудита и правки владельцем
+  if (path === "/api/kb/facts" && method === "GET") {
+    if (!owner) return forbid();
+    const { results } = await db
+      .prepare("SELECT id, content FROM agent_knowledge WHERE salon_id=1 AND source='distilled' ORDER BY id")
+      .all();
+    return j(results);
+  }
+  const kbFactDel = path.match(/^\/api\/kb\/facts\/(\d+)$/);
+  if (kbFactDel && method === "DELETE") {
+    if (!owner) return forbid();
+    await db.prepare("DELETE FROM agent_knowledge WHERE id=? AND salon_id=1").bind(kbFactDel[1]).run();
+    return j({ ok: true });
+  }
 
   // Кто вошёл — чтобы панель показала нужный набор вкладок
   if (path === "/api/auth/me" && method === "GET") {
