@@ -151,10 +151,16 @@ export async function handleApiRequest(request, env, path, auth = { role: "owner
       .all();
     return j(results);
   }
-  const kbFactDel = path.match(/^\/api\/kb\/facts\/(\d+)$/);
-  if (kbFactDel && method === "DELETE") {
+  const kbFactId = path.match(/^\/api\/kb\/facts\/(\d+)$/);
+  if (kbFactId && method === "DELETE") {
     if (!owner) return forbid();
-    await db.prepare("DELETE FROM agent_knowledge WHERE id=? AND salon_id=1").bind(kbFactDel[1]).run();
+    await db.prepare("DELETE FROM agent_knowledge WHERE id=? AND salon_id=1").bind(kbFactId[1]).run();
+    return j({ ok: true });
+  }
+  if (kbFactId && method === "PUT") {
+    if (!owner) return forbid();
+    const b = await request.json();
+    await db.prepare("UPDATE agent_knowledge SET content=? WHERE id=? AND salon_id=1").bind(String(b.content || ""), kbFactId[1]).run();
     return j({ ok: true });
   }
 
