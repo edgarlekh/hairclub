@@ -98,8 +98,10 @@ export async function getSalon(db, salonId) {
 
 // Ответы владелицы из анкеты — фактура для агента (цены, правила, как отвечать)
 export async function getSurveyAnswers(db, salonId) {
+  // Ключи price_* — это «черновик цен» на модерации: бот их НЕ видит, пока
+  // проверенная версия не будет одобрена (ключ approved_prices — его читаем).
   const { results } = await db
-    .prepare("SELECT section, label, answer FROM survey_answers WHERE salon_id = ? AND answer IS NOT NULL AND TRIM(answer) != ''")
+    .prepare("SELECT section, label, answer FROM survey_answers WHERE salon_id = ? AND answer IS NOT NULL AND TRIM(answer) != '' AND question_key NOT LIKE 'price\\_%' ESCAPE '\\'")
     .bind(salonId)
     .all();
   return results;
@@ -117,10 +119,14 @@ export async function getLessons(db, salonId, limit = 40) {
 // Расшифровки прикреплённых скриншотов (переписки, прайсы) — бот учится и с картинок
 export async function getScreenshotTranscripts(db, salonId) {
   const out = [];
-  const q = "SELECT transcript FROM %T WHERE salon_id = ? AND transcript IS NOT NULL AND TRIM(transcript) != ''";
-  for (const t of ["training_photos", "survey_photos"]) {
+  // Фото прайса на модерации (survey_photos с ключом price_*) бот тоже не читает.
+  const queries = {
+    training_photos: "SELECT transcript FROM training_photos WHERE salon_id = ? AND transcript IS NOT NULL AND TRIM(transcript) != ''",
+    survey_photos: "SELECT transcript FROM survey_photos WHERE salon_id = ? AND transcript IS NOT NULL AND TRIM(transcript) != '' AND question_key NOT LIKE 'price\\_%' ESCAPE '\\'",
+  };
+  for (const [t, sql] of Object.entries(queries)) {
     try {
-      const { results } = await db.prepare(q.replace("%T", t)).bind(salonId).all();
+      const { results } = await db.prepare(sql).bind(salonId).all();
       for (const r of results) out.push(r.transcript);
     } catch { /* колонки может ещё не быть до миграции — не падаем */ }
   }

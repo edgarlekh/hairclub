@@ -475,6 +475,7 @@
   <button data-tab="myrevenue" style="display:none">Моя выручка</button>
   <button data-tab="summary">Сводка</button>
   <button data-tab="survey">Анкета</button>
+  <button data-tab="prices">Цены</button>
   <button data-tab="rules">Правила</button>
   <button data-tab="knowledge">База знаний</button>
   <button data-tab="conversations">Диалоги</button>
@@ -2846,6 +2847,7 @@ function render() {
     myrevenue: renderMyRevenue,
     summary: renderSummary,
     survey: renderSurvey,
+    prices: renderPrices,
     services: renderServices,
     employees: renderEmployees,
     clients: renderClients,
@@ -3048,6 +3050,117 @@ async function deleteSurveyPhoto(id, key) {
   await api(`/survey/photos/${id}`, { method: "DELETE" });
   surveyState.photos[key] = (surveyState.photos[key] || []).filter(p => p.id !== id);
   renderSurveyPhotos(key);
+}
+
+// ---------- ЦЕНЫ (отдельно от анкеты; черновик — бот берёт после проверки) ----------
+const PRICES = [
+  { title: "Наращивание волос", items: [
+    { k: "price_ext_hair", q: "Волосы — цена", hint: "за грамм или за комплект (напр. 20 zł/грамм)" },
+    { k: "price_ext_work", q: "Работа мастера — цена", hint: "за что берёте и сколько" },
+    { k: "price_ext_first", q: "Первое наращивание, средние волосы — от", unit: "zł", hint: "под ключ: волосы + работа" },
+    { k: "price_ext_corr", q: "Коррекция — от", unit: "zł", hint: "как считается" },
+    { k: "price_ext_removal", q: "Снятие волос", unit: "zł" },
+    { k: "price_ext_detangle", q: "Распутывание колтунов — за час", unit: "zł" },
+  ]},
+  { title: "Кератин / выпрямление", items: [
+    { k: "price_keratin_short", q: "Короткие волосы — от", unit: "zł" },
+    { k: "price_keratin_mid", q: "Средние — от", unit: "zł" },
+    { k: "price_keratin_long", q: "Длинные — от", unit: "zł" },
+  ]},
+  { title: "Уход и восстановление", items: [
+    { k: "price_botox", q: "Ботокс для волос — от", unit: "zł" },
+    { k: "price_nano", q: "Нанопластия — от", unit: "zł" },
+    { k: "price_regen", q: "Регенерация / холодное восстановление — от", unit: "zł" },
+  ]},
+  { title: "Окрашивание", items: [
+    { k: "price_color", q: "Окрашивание — от", unit: "zł", hint: "от чего зависит (длина, техника)" },
+    { k: "price_color_complex", q: "Сложные техники (air touch, балаяж) — от", unit: "zł" },
+  ]},
+  { title: "Общее", items: [
+    { k: "price_min_prepay", q: "Минимальная сумма визита или предоплата", hint: "есть? сколько?" },
+  ]},
+];
+
+function ensurePricesCss() {
+  if (document.getElementById("prices-css")) return;
+  const s = document.createElement("style");
+  s.id = "prices-css";
+  s.textContent = `
+    .pr-intro{background:var(--gradient);color:#fff;border-radius:14px;padding:16px;margin-bottom:14px}
+    .pr-intro h3{margin:0 0 4px;font-family:var(--font-heading)}
+    .pr-intro p{margin:0;font-size:13px;opacity:.95}
+    .pr-note{background:#fbeee0;border:1px dashed var(--gold-2);color:var(--gold-mid);border-radius:12px;padding:11px 13px;margin:12px 0;font-size:13px}
+    .pr-group{background:#fff;border:1px solid var(--line);border-radius:14px;padding:6px 14px;margin-bottom:14px}
+    .pr-group h4{margin:12px 2px 6px;font-family:var(--font-heading);font-size:16px}
+    .pf{padding:11px 0;border-top:1px solid var(--line)}
+    .pf:first-of-type{border-top:none}
+    .pf-lbl{font-size:14px;font-weight:600;margin-bottom:7px}
+    .pf-hint{display:block;font-weight:400;color:var(--muted);font-size:12.5px;margin-top:2px}
+    .pf-in{display:flex;align-items:center;gap:8px}
+    .pf-in input{flex:1;font-size:16px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:#faf6f1}
+    .pf-in input:focus{outline:none;border-color:var(--gold-2);box-shadow:0 0 0 3px #f1e4ce}
+    .pf-unit{color:var(--muted);font-weight:600;font-size:14px}
+    .pf.pf-done .pf-lbl::after{content:" ✓";color:#3E7C54}
+    .sv-saved{font-size:11px;color:var(--muted);margin-left:4px}
+  `;
+  document.head.appendChild(s);
+}
+
+async function renderPrices() {
+  document.getElementById("fab").style.display = "none";
+  ensurePricesCss();
+  const data = await api("/survey");
+  surveyState.answers = {};
+  (data.answers || []).forEach(a => { surveyState.answers[a.question_key] = a.answer || ""; });
+  surveyState.photos = {};
+  (data.photos || []).forEach(p => { (surveyState.photos[p.question_key] ??= []).push(p); });
+
+  const esc = v => (v || "").replace(/"/g, "&quot;");
+  const priceField = (sectionTitle, it) => {
+    const val = surveyState.answers[it.k] || "";
+    const s = JSON.stringify(sectionTitle).replace(/"/g, "&quot;");
+    const l = JSON.stringify(it.q).replace(/"/g, "&quot;");
+    return `
+      <div class="pf ${val.trim() ? "pf-done" : ""}">
+        <div class="pf-lbl">${it.q}${it.hint ? `<span class="pf-hint">${it.hint}</span>` : ""}</div>
+        <div class="pf-in">
+          <input id="sv_a_${it.k}" value="${esc(val)}" inputmode="${it.unit ? "decimal" : "text"}"
+                 placeholder="${it.unit ? "напр. 500" : "…"}"
+                 onblur="saveSurvey('${it.k}', ${s}, ${l})">
+          ${it.unit ? `<span class="pf-unit">${it.unit}</span>` : ""}
+          <span class="sv-saved" id="sv_saved_${it.k}"></span>
+        </div>
+      </div>`;
+  };
+
+  const sheet = surveyState.photos["price_sheet"] || [];
+  document.getElementById("content").innerHTML = `
+    <div class="pr-intro">
+      <h3>Цены</h3>
+      <p>Заполните актуальные цены — по ним бот будет называть суммы. Пустые поля просто пропустите. Всё сохраняется само.</p>
+    </div>
+
+    <div class="pr-note">🔒 То, что вы впишете здесь, бот <b>не берёт сразу</b>. Сначала мы проверим и оформим ответы, и только после этого бот начнёт называть эти цены — чтобы всё звучало правильно и по делу.</div>
+
+    <div class="pr-group">
+      <h4>📸 Есть готовый прайс?</h4>
+      <p class="pf-hint" style="margin:0 0 8px 2px">Сбросьте фото или скрин прайс-таблицы — система его прочитает, ничего вручную вбивать не придётся. Можно несколько.</p>
+      <div class="sv-photos" id="sv_ph_price_sheet">
+        ${sheet.map(p => `<span class="sv-photo-wrap"><img src="${p.photo_url}" onclick="openLightbox([{photo_url:'${p.photo_url}'}],0)"><button onclick="deleteSurveyPhoto(${p.id},'price_sheet')">×</button></span>`).join("")}
+        <label class="sv-attach" style="padding:12px 18px">📎 Загрузить прайс фото<input type="file" accept="image/*" multiple style="display:none" onchange="uploadSurveyPhotos('price_sheet', this.files)"></label>
+        <span class="sv-saved" id="sv_saved_price_sheet"></span>
+      </div>
+    </div>
+
+    ${PRICES.map(g => `
+      <div class="pr-group">
+        <h4>${g.title}</h4>
+        ${g.items.map(it => priceField(g.title, it)).join("")}
+      </div>
+    `).join("")}
+
+    <div class="pr-note" style="text-align:center">Заполнили? Напишите Эдгару — он проверит и включит цены боту.</div>
+  `;
 }
 
 // ---------- ВХОД И РОЛИ ----------
