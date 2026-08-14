@@ -3054,30 +3054,24 @@ async function deleteSurveyPhoto(id, key) {
 
 // ---------- ЦЕНЫ (отдельно от анкеты; черновик — бот берёт после проверки) ----------
 const PRICES = [
-  { title: "Наращивание волос", items: [
-    { k: "price_ext_hair", q: "Волосы — цена", hint: "за грамм или за комплект (напр. 20 zł/грамм)" },
-    { k: "price_ext_work", q: "Работа мастера — цена", hint: "за что берёте и сколько" },
-    { k: "price_ext_first", q: "Первое наращивание, средние волосы — от", unit: "zł", hint: "под ключ: волосы + работа" },
-    { k: "price_ext_corr", q: "Коррекция — от", unit: "zł", hint: "как считается" },
-    { k: "price_ext_removal", q: "Снятие волос", unit: "zł" },
-    { k: "price_ext_detangle", q: "Распутывание колтунов — за час", unit: "zł" },
+  { title: "Наращивание — цены", items: [
+    { k: "price_ext_how", q: "Как у вас складывается цена на наращивание?", hint: "Из чего состоит (волосы + работа мастера), как считаете — за граммы, за длину, за комплект? Опишите так, как сами объясняете клиенту." },
+    { k: "price_ext_first", q: "Первое наращивание для средних волос — сколько выходит примерно «под ключ»?", hint: "Можно вилкой (от–до) и от чего зависит — длина, густота, желаемый результат." },
+    { k: "price_ext_corr", q: "Коррекция — сколько стоит, как считается и как часто её делают?", hint: "Как удобно, своими словами — можно вилкой и раз в сколько месяцев." },
+    { k: "price_ext_extra", q: "Снятие волос и распутывание колтунов — сколько стоят?", hint: "И входит ли снятие в коррекцию или отдельно." },
+    { k: "price_ext_methods", q: "Какие методы/капсулы предлагаете и как это влияет на цену?", hint: "Если у клиента есть выбор — расскажите, из чего." },
   ]},
-  { title: "Кератин / выпрямление", items: [
-    { k: "price_keratin_short", q: "Короткие волосы — от", unit: "zł" },
-    { k: "price_keratin_mid", q: "Средние — от", unit: "zł" },
-    { k: "price_keratin_long", q: "Длинные — от", unit: "zł" },
+  { title: "Кератин и уход — цены", items: [
+    { k: "price_keratin", q: "Кератиновое выпрямление — сколько стоит?", hint: "Распишите по длине: короткие / средние / длинные, и от чего ещё зависит цена (состав, густота)." },
+    { k: "price_care", q: "Ботокс, нанопластия, регенерация / холодное восстановление — сколько стоят?", hint: "Чем отличаются для клиента и что когда советуете. Можно по каждой." },
   ]},
-  { title: "Уход и восстановление", items: [
-    { k: "price_botox", q: "Ботокс для волос — от", unit: "zł" },
-    { k: "price_nano", q: "Нанопластия — от", unit: "zł" },
-    { k: "price_regen", q: "Регенерация / холодное восстановление — от", unit: "zł" },
+  { title: "Окрашивание — цены", items: [
+    { k: "price_color", q: "Окрашивание — от какой суммы и от чего зависит?", hint: "Длина, техника, расход красителя. Сложные техники (air touch, балаяж) — свой ориентир." },
   ]},
-  { title: "Окрашивание", items: [
-    { k: "price_color", q: "Окрашивание — от", unit: "zł", hint: "от чего зависит (длина, техника)" },
-    { k: "price_color_complex", q: "Сложные техники (air touch, балаяж) — от", unit: "zł" },
-  ]},
-  { title: "Общее", items: [
-    { k: "price_min_prepay", q: "Минимальная сумма визита или предоплата", hint: "есть? сколько?" },
+  { title: "Оплата и условия", items: [
+    { k: "price_min_prepay", q: "Есть ли минимальная сумма визита, предоплата или депозит?", hint: "Для кого, когда и сколько. Если по-разному для разных услуг — распишите." },
+    { k: "price_included", q: "Что входит в стоимость процедуры, а что оплачивается отдельно?", hint: "Мытьё, укладка, уход после, косметика — что включено." },
+    { k: "price_first_answer", q: "Когда клиент с порога пишет «сколько стоит?» — что вы уточняете и как отвечаете?", hint: "Чтобы бот вёл разговор так же, как вы. Расскажите свободно." },
   ]},
 ];
 
@@ -3094,12 +3088,10 @@ function ensurePricesCss() {
     .pr-group h4{margin:12px 2px 6px;font-family:var(--font-heading);font-size:16px}
     .pf{padding:11px 0;border-top:1px solid var(--line)}
     .pf:first-of-type{border-top:none}
-    .pf-lbl{font-size:14px;font-weight:600;margin-bottom:7px}
-    .pf-hint{display:block;font-weight:400;color:var(--muted);font-size:12.5px;margin-top:2px}
-    .pf-in{display:flex;align-items:center;gap:8px}
-    .pf-in input{flex:1;font-size:16px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:#faf6f1}
-    .pf-in input:focus{outline:none;border-color:var(--gold-2);box-shadow:0 0 0 3px #f1e4ce}
-    .pf-unit{color:var(--muted);font-weight:600;font-size:14px}
+    .pf-lbl{font-size:14.5px;font-weight:600;margin-bottom:8px;line-height:1.35}
+    .pf-hint{display:block;font-weight:400;color:var(--muted);font-size:12.5px;margin-top:3px;line-height:1.4}
+    .pf-ta{width:100%;min-height:64px;resize:vertical;font-family:inherit;font-size:16px;line-height:1.45;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#faf6f1;color:inherit}
+    .pf-ta:focus{outline:none;border-color:var(--gold-2);box-shadow:0 0 0 3px #f1e4ce}
     .pf.pf-done .pf-lbl::after{content:" ✓";color:#3E7C54}
     .sv-saved{font-size:11px;color:var(--muted);margin-left:4px}
   `;
@@ -3115,7 +3107,7 @@ async function renderPrices() {
   surveyState.photos = {};
   (data.photos || []).forEach(p => { (surveyState.photos[p.question_key] ??= []).push(p); });
 
-  const esc = v => (v || "").replace(/"/g, "&quot;");
+  const escT = v => (v || "").replace(/</g, "&lt;");
   const priceField = (sectionTitle, it) => {
     const val = surveyState.answers[it.k] || "";
     const s = JSON.stringify(sectionTitle).replace(/"/g, "&quot;");
@@ -3123,13 +3115,9 @@ async function renderPrices() {
     return `
       <div class="pf ${val.trim() ? "pf-done" : ""}">
         <div class="pf-lbl">${it.q}${it.hint ? `<span class="pf-hint">${it.hint}</span>` : ""}</div>
-        <div class="pf-in">
-          <input id="sv_a_${it.k}" value="${esc(val)}" inputmode="${it.unit ? "decimal" : "text"}"
-                 placeholder="${it.unit ? "напр. 500" : "…"}"
-                 onblur="saveSurvey('${it.k}', ${s}, ${l})">
-          ${it.unit ? `<span class="pf-unit">${it.unit}</span>` : ""}
-          <span class="sv-saved" id="sv_saved_${it.k}"></span>
-        </div>
+        <textarea class="pf-ta" id="sv_a_${it.k}" placeholder="Ответьте своими словами…"
+                  onblur="saveSurvey('${it.k}', ${s}, ${l})">${escT(val)}</textarea>
+        <span class="sv-saved" id="sv_saved_${it.k}"></span>
       </div>`;
   };
 
