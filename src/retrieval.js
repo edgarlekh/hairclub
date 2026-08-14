@@ -98,10 +98,10 @@ export async function getSalon(db, salonId) {
 
 // Ответы владелицы из анкеты — фактура для агента (цены, правила, как отвечать)
 export async function getSurveyAnswers(db, salonId) {
-  // Ключи price_* — это «черновик цен» на модерации: бот их НЕ видит, пока
-  // проверенная версия не будет одобрена (ключ approved_prices — его читаем).
+  // Ключи price_* и new_* — «черновик» из новой анкеты на модерации: бот их НЕ
+  // видит, пока проверенная версия не будет одобрена и опубликована под чистым ключом.
   const { results } = await db
-    .prepare("SELECT section, label, answer FROM survey_answers WHERE salon_id = ? AND answer IS NOT NULL AND TRIM(answer) != '' AND question_key NOT LIKE 'price\\_%' ESCAPE '\\'")
+    .prepare("SELECT section, label, answer FROM survey_answers WHERE salon_id = ? AND answer IS NOT NULL AND TRIM(answer) != '' AND question_key NOT LIKE 'price\\_%' ESCAPE '\\' AND question_key NOT LIKE 'new\\_%' ESCAPE '\\'")
     .bind(salonId)
     .all();
   return results;

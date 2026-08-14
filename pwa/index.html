@@ -474,8 +474,8 @@
   <button data-tab="clients">Клиенты</button>
   <button data-tab="myrevenue" style="display:none">Моя выручка</button>
   <button data-tab="summary">Сводка</button>
-  <button data-tab="survey">Анкета</button>
-  <button data-tab="prices">Цены</button>
+  <button data-tab="survey" style="display:none">Анкета (старая)</button>
+  <button data-tab="prices">Анкета</button>
   <button data-tab="rules">Правила</button>
   <button data-tab="knowledge">База знаний</button>
   <button data-tab="conversations">Диалоги</button>
@@ -3073,6 +3073,14 @@ const PRICES = [
     { k: "price_included", q: "Что входит в стоимость процедуры, а что оплачивается отдельно?", hint: "Мытьё, укладка, уход после, косметика — что включено." },
     { k: "price_first_answer", q: "Когда клиент с порога пишет «сколько стоит?» — что вы уточняете и как отвечаете?", hint: "Чтобы бот вёл разговор так же, как вы. Расскажите свободно." },
   ]},
+  { title: "Общие вопросы о салоне", items: [
+    { k: "new_guarantee", q: "Что если клиенту не понравился результат?", hint: "Есть ли переделка, доработка, гарантия — что вы предлагаете в таких случаях?" },
+    { k: "new_homecare", q: "Продаёте ли домашний уход и косметику? Что рекомендуете клиентам для дома?", hint: "Шампуни, маски, масла — что советуете после наращивания/кератина." },
+    { k: "new_firstvisit", q: "Как проходит первый визит клиента — с чего начинаете?", hint: "Диагностика, консультация, подбор — опишите по шагам, как обычно." },
+    { k: "new_prepay_online", q: "Можно ли внести аванс/предоплату онлайн до визита?", hint: "BLIK, перевод — как это работает у вас." },
+    { k: "new_combine", q: "Какие услуги можно совместить за один визит, а какие нет?", hint: "Например, окрашивание + наращивание в один день." },
+    { k: "new_extra", q: "Что клиенты часто спрашивают, а бот пока может не знать?", hint: "Допишите свободно всё, что важно, чтобы бот отвечал как вы." },
+  ]},
 ];
 
 function ensurePricesCss() {
@@ -3124,8 +3132,8 @@ async function renderPrices() {
   const sheet = surveyState.photos["price_sheet"] || [];
   document.getElementById("content").innerHTML = `
     <div class="pr-intro">
-      <h3>Цены</h3>
-      <p>Заполните актуальные цены — по ним бот будет называть суммы. Пустые поля просто пропустите. Всё сохраняется само.</p>
+      <h3>Анкета</h3>
+      <p>Заполните ответы своими словами — по ним бот будет отвечать клиентам вашими фактами и вашим тоном. Пустые поля просто пропустите. Всё сохраняется само.</p>
     </div>
 
     <div class="pr-note">🔒 То, что вы впишете здесь, бот <b>не берёт сразу</b>. Сначала мы проверим и оформим ответы, и только после этого бот начнёт называть эти цены — чтобы всё звучало правильно и по делу.</div>
@@ -3251,7 +3259,7 @@ function applyAccess() {
   const staffTabs = ["calendar", "clients", "profile"];
   if (can("revenue") && !isOwner()) staffTabs.push("myrevenue");
   // «Моя выручка» — личная вкладка сотрудницы, у владельца её быть не должно
-  const ownerHidden = ["myrevenue"];
+  const ownerHidden = ["myrevenue", "survey"];
   document.querySelectorAll("nav button").forEach((b) => {
     const tab = b.dataset.tab;
     const visible = isOwner() ? !ownerHidden.includes(tab) : staffTabs.includes(tab);
