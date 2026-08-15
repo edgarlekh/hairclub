@@ -122,7 +122,7 @@ export async function getScreenshotTranscripts(db, salonId) {
   // Фото прайса на модерации (survey_photos с ключом price_*) бот тоже не читает.
   const queries = {
     training_photos: "SELECT transcript FROM training_photos WHERE salon_id = ? AND transcript IS NOT NULL AND TRIM(transcript) != ''",
-    survey_photos: "SELECT transcript FROM survey_photos WHERE salon_id = ? AND transcript IS NOT NULL AND TRIM(transcript) != '' AND question_key NOT LIKE 'price\\_%' ESCAPE '\\'",
+    survey_photos: "SELECT transcript FROM survey_photos WHERE salon_id = ? AND transcript IS NOT NULL AND TRIM(transcript) != '' AND question_key NOT LIKE 'price\\_%' ESCAPE '\\' AND question_key NOT LIKE 'new\\_%' ESCAPE '\\'",
   };
   for (const [t, sql] of Object.entries(queries)) {
     try {

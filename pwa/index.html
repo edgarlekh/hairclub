@@ -3118,14 +3118,19 @@ async function renderPrices() {
   const escT = v => (v || "").replace(/</g, "&lt;");
   const priceField = (sectionTitle, it) => {
     const val = surveyState.answers[it.k] || "";
+    const photos = surveyState.photos[it.k] || [];
     const s = JSON.stringify(sectionTitle).replace(/"/g, "&quot;");
     const l = JSON.stringify(it.q).replace(/"/g, "&quot;");
     return `
-      <div class="pf ${val.trim() ? "pf-done" : ""}">
+      <div class="pf ${(val.trim() || photos.length) ? "pf-done" : ""}">
         <div class="pf-lbl">${it.q}${it.hint ? `<span class="pf-hint">${it.hint}</span>` : ""}</div>
-        <textarea class="pf-ta" id="sv_a_${it.k}" placeholder="Ответьте своими словами…"
+        <textarea class="pf-ta" id="sv_a_${it.k}" placeholder="Ответьте своими словами… (или прикрепите фото ниже)"
                   onblur="saveSurvey('${it.k}', ${s}, ${l})">${escT(val)}</textarea>
-        <span class="sv-saved" id="sv_saved_${it.k}"></span>
+        <div class="sv-photos" id="sv_ph_${it.k}" style="margin-top:8px">
+          ${photos.map(p => `<span class="sv-photo-wrap"><img src="${p.photo_url}" onclick="openLightbox([{photo_url:'${p.photo_url}'}],0)"><button onclick="deleteSurveyPhoto(${p.id},'${it.k}')">×</button></span>`).join("")}
+          <label class="sv-attach">📎 фото<input type="file" accept="image/*" multiple style="display:none" onchange="uploadSurveyPhotos('${it.k}', this.files)"></label>
+          <span class="sv-saved" id="sv_saved_${it.k}"></span>
+        </div>
       </div>`;
   };
 
@@ -3136,15 +3141,19 @@ async function renderPrices() {
       <p>Заполните ответы своими словами — по ним бот будет отвечать клиентам вашими фактами и вашим тоном. Пустые поля просто пропустите. Всё сохраняется само.</p>
     </div>
 
-    <div class="pr-note">🔒 То, что вы впишете здесь, бот <b>не берёт сразу</b>. Сначала мы проверим и оформим ответы, и только после этого бот начнёт называть эти цены — чтобы всё звучало правильно и по делу.</div>
-
     <div class="pr-group">
-      <h4>📸 Есть готовый прайс?</h4>
-      <p class="pf-hint" style="margin:0 0 8px 2px">Сбросьте фото или скрин прайс-таблицы — система его прочитает, ничего вручную вбивать не придётся. Можно несколько.</p>
+      <h4>📸 Готовый прайс — фото и/или текстом</h4>
+      <p class="pf-hint" style="margin:0 0 10px 2px">Можно и то, и другое: сбросьте фото/скрин прайс-таблицы (система прочитает), а что не поместилось на фото или хотите уточнить — допишите словами ниже. Заполнять всё необязательно.</p>
       <div class="sv-photos" id="sv_ph_price_sheet">
         ${sheet.map(p => `<span class="sv-photo-wrap"><img src="${p.photo_url}" onclick="openLightbox([{photo_url:'${p.photo_url}'}],0)"><button onclick="deleteSurveyPhoto(${p.id},'price_sheet')">×</button></span>`).join("")}
         <label class="sv-attach" style="padding:12px 18px">📎 Загрузить прайс фото<input type="file" accept="image/*" multiple style="display:none" onchange="uploadSurveyPhotos('price_sheet', this.files)"></label>
         <span class="sv-saved" id="sv_saved_price_sheet"></span>
+      </div>
+      <div class="pf" style="border-top:none;padding-top:12px">
+        <div class="pf-lbl">Дописать прайс текстом<span class="pf-hint">Если удобнее часть цен написать, а не фотографировать — впишите здесь, свободно.</span></div>
+        <textarea class="pf-ta" id="sv_a_price_sheet_note" placeholder="Например: кератин средние — …, коррекция — …"
+                  onblur="saveSurvey('price_sheet_note', 'Прайс — текстом', 'Прайс текстом')">${escT(surveyState.answers["price_sheet_note"] || "")}</textarea>
+        <span class="sv-saved" id="sv_saved_price_sheet_note"></span>
       </div>
     </div>
 
@@ -3155,7 +3164,7 @@ async function renderPrices() {
       </div>
     `).join("")}
 
-    <div class="pr-note" style="text-align:center">Заполнили? Напишите Эдгару — он проверит и включит цены боту.</div>
+    <div class="pr-note" style="text-align:center">Спасибо! Всё сохраняется автоматически.</div>
   `;
 }
 
