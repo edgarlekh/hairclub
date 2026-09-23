@@ -331,7 +331,19 @@ async function saveMessage(db, conversationId, sender, content) {
     .run();
 }
 
-async function handleToolCall(db, toolName, toolInput, conversationId, bookingSource = "agent", clientMessage = "") {
+// Уведомление владелице в Telegram (если подключён бот). Тихо пропускаем, если не настроен.
+async function notifyOwner(env, text) {
+  if (!env || !env.TELEGRAM_TOKEN || !env.TELEGRAM_CHAT_ID) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text, disable_web_page_preview: true }),
+    });
+  } catch { /* уведомление не критично — не роняем ответ клиенту */ }
+}
+
+async function handleToolCall(db, toolName, toolInput, conversationId, bookingSource = "agent", clientMessage = "", env = null) {
   if (toolName === "ask_owner") {
     // Не знает ответ — кладём вопрос владелице; клиенту сейчас не отвечаем
     const conv = await db.prepare("SELECT client_channel_id FROM conversations WHERE id=?").bind(conversationId).first();
@@ -339,6 +351,7 @@ async function handleToolCall(db, toolName, toolInput, conversationId, bookingSo
       .prepare("INSERT INTO pending_questions (salon_id, conversation_id, client_channel_id, client_question, bot_question) VALUES (1, ?, ?, ?, ?)")
       .bind(conversationId, conv?.client_channel_id || null, clientMessage || null, toolInput.question || null)
       .run();
+    await notifyOwner(env, `🙋 Бот не знает, что ответить\nКлиент: ${clientMessage || "—"}\nБоту нужно узнать: ${toolInput.question || "—"}\n\nОткрой панель → Диалоги → «Бот спрашивает вас» и ответь.`);
     return "__ASK_OWNER__";
   }
   if (toolName === "get_available_slots") {
@@ -374,6 +387,7 @@ async function handleToolCall(db, toolName, toolInput, conversationId, bookingSo
       .prepare("UPDATE conversations SET status='escalated' WHERE id=?")
       .bind(conversationId)
       .run();
+    await notifyOwner(env, `⚠️ Сложный клиент — нужен человек\nПричина: ${toolInput.reason || "—"}\nПоследнее сообщение клиента: ${clientMessage || "—"}\n\nОткрой Instagram и подключись к переписке.`);
     return "Диалог отмечен для внимания владельца.";
   }
   if (toolName === "attach_photo") {
@@ -477,7 +491,7 @@ export async function getAgentResponse(env, salonId, conversationId, clientMessa
     const toolResults = [];
     for (const tu of toolUses) {
       if (tu.name === "attach_photo") attachedPhotos.push(tu.input.photo_id);
-      const result = await handleToolCall(db, tu.name, tu.input, conversationId, bookingSource, clientMessage);
+      const result = await handleToolCall(db, tu.name, tu.input, conversationId, bookingSource, clientMessage, env);
       if (result === "__ASK_OWNER__") waitingForOwner = true;
       toolResults.push({ type: "tool_result", tool_use_id: tu.id, content: result });
     }
