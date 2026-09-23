@@ -351,7 +351,7 @@ async function handleToolCall(db, toolName, toolInput, conversationId, bookingSo
       .prepare("INSERT INTO pending_questions (salon_id, conversation_id, client_channel_id, client_question, bot_question) VALUES (1, ?, ?, ?, ?)")
       .bind(conversationId, conv?.client_channel_id || null, clientMessage || null, toolInput.question || null)
       .run();
-    await notifyOwner(env, `🙋 Бот не знает, что ответить\nКлиент: ${clientMessage || "—"}\nБоту нужно узнать: ${toolInput.question || "—"}\n\nОткрой панель → Диалоги → «Бот спрашивает вас» и ответь.`);
+    await notifyOwner(env, `🙋 Бот не знает, что ответить\nОт кого: ${conv?.client_channel_id || "—"}\nСообщение клиента: ${clientMessage || "—"}\nБоту нужно узнать: ${toolInput.question || "—"}\n\nОткрой панель → Диалоги → «Бот спрашивает вас» и ответь.`);
     return "__ASK_OWNER__";
   }
   if (toolName === "get_available_slots") {
@@ -387,7 +387,8 @@ async function handleToolCall(db, toolName, toolInput, conversationId, bookingSo
       .prepare("UPDATE conversations SET status='escalated' WHERE id=?")
       .bind(conversationId)
       .run();
-    await notifyOwner(env, `⚠️ Сложный клиент — нужен человек\nПричина: ${toolInput.reason || "—"}\nПоследнее сообщение клиента: ${clientMessage || "—"}\n\nОткрой Instagram и подключись к переписке.`);
+    const ec = await db.prepare("SELECT client_channel_id FROM conversations WHERE id=?").bind(conversationId).first();
+    await notifyOwner(env, `⚠️ Сложный клиент — нужен человек\nОт кого: ${ec?.client_channel_id || "—"}\nПричина: ${toolInput.reason || "—"}\nПоследнее сообщение клиента: ${clientMessage || "—"}\n\nОткрой Instagram и подключись к переписке.`);
     return "Диалог отмечен для внимания владельца.";
   }
   if (toolName === "attach_photo") {
